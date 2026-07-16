@@ -51,6 +51,27 @@ const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
     drawStrokes();
   }, [pdfId, pageNumber]);
 
+  // Prevent mobile browser scrolling and default touch behaviors when pencilMode is active
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const preventDefault = (e: TouchEvent) => {
+      if (pencilMode) {
+        e.preventDefault();
+      }
+    };
+
+    // Add native listeners with passive: false to force preventDefault support on mobile browsers
+    canvas.addEventListener('touchstart', preventDefault, { passive: false });
+    canvas.addEventListener('touchmove', preventDefault, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('touchstart', preventDefault);
+      canvas.removeEventListener('touchmove', preventDefault);
+    };
+  }, [pencilMode]);
+
   // Adjust dimensions dynamically
   useEffect(() => {
     if (dimensions) {
@@ -220,7 +241,10 @@ const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="absolute inset-0 pointer-events-none z-15">
+    <div 
+      ref={containerRef} 
+      className={`absolute inset-0 z-15 ${pencilMode ? 'pointer-events-auto' : 'pointer-events-none'}`}
+    >
       <canvas 
         ref={canvasRef}
         onPointerDown={handlePointerDown}
