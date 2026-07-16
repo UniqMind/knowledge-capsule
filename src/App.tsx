@@ -530,7 +530,11 @@ export default function App() {
               
               {/* Left pane: PDF Reader Panel */}
               {workspaceMode !== 'graph-only' && (
-                <div className="flex-1 h-full p-4 overflow-hidden">
+                <div className={`flex-1 h-full p-4 overflow-hidden transition-all duration-300 ${
+                  showLeftSidebar ? 'pl-[240px] lg:pl-4' : 'pl-4'
+                } ${
+                  showRightSidebar ? 'pr-[390px] lg:pr-4' : 'pr-4'
+                }`}>
                   <PDFViewer
                     pdfInfo={activePdf}
                     capsules={capsules}
