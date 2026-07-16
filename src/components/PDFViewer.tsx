@@ -562,8 +562,8 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   // Fit scale helper matching container width
   const fitScaleToContainer = async (width: number, pdfDoc = pdfDocument) => {
     if (!pdfDoc) return;
-    const padding = 48;
-    const containerWidth = width - padding;
+    const isClientWidth = containerRef.current && width === containerRef.current.clientWidth;
+    const containerWidth = width - (isClientWidth ? 72 : 24); // Subtract padding + scrollbar margin for clientWidth, or just scrollbar margin for contentRect
     if (containerWidth <= 0) return;
 
     try {
@@ -1146,7 +1146,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       <div 
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto flex flex-col items-center gap-8 p-6 bg-slate-550/50 dark:bg-slate-950/20 scroll-smooth w-full"
+        className="flex-1 overflow-y-auto flex flex-col items-center gap-8 p-6 bg-slate-100/50 dark:bg-slate-950/20 scroll-smooth w-full"
       >
         {/* Loading Indicator */}
         {loading && !pdfDocument && !isSample && (
