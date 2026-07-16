@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   BookOpen, FileText, Brain, Plus, Search, 
   Trash2, Award, Clock, ArrowRight, Upload, Sparkles
@@ -88,6 +88,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const triggerFileInput = () => {
     fileInputRef.current?.click();
   };
+
+  // Global paste upload listener
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) {
+            const isPDF = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+            if (isPDF) {
+              processFile(file);
+              break;
+            }
+          }
+        }
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => {
+      document.removeEventListener('paste', handlePaste);
+    };
+  }, [onUploadPDF]);
 
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
