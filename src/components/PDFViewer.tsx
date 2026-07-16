@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight, 
-  BookOpen, CheckCircle, RefreshCw, Bookmark, X, Check
+  BookOpen, CheckCircle, RefreshCw, Bookmark, X
 } from 'lucide-react';
 import * as pdfjs from 'pdfjs-dist';
 import { getPDFFile, KnowledgeCapsuleItem, PDFDocumentInfo } from '../utils/storage';
@@ -12,7 +12,7 @@ import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 // Setup worker
 pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
-// 1. MODULE FOR RENDERING A SINGLE PAGE CANVAS OF A REAL PDF
+// 1. MODULE FOR RENDERING A SINGLE PAGE CANVAS OF A REAL PDF (WITH HIGH-DPI & RETINA SHARPNESS)
 interface PageCanvasProps {
   pdf: any; // PDFDocumentProxy
   pageNumber: number;
@@ -41,7 +41,9 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
   const [loading, setLoading] = useState(false);
+  const [pageSize, setPageSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   useEffect(() => {
     if (!pdf || !canvasRef.current) return;
@@ -55,9 +57,23 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
         const canvas = canvasRef.current!;
         const context = canvas.getContext('2d')!;
 
+        // 1. Calculate device pixel ratio for sharp text on Retina/High-DPI screens (e.g. iPad)
+        const dpr = window.devicePixelRatio || 1;
         const viewport = page.getViewport({ scale });
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
+        
+        // Save logical CSS dimensions
+        setPageSize({ width: viewport.width, height: viewport.height });
+
+        // Set backing canvas store dimensions (scaled up by DPR)
+        canvas.width = viewport.width * dpr;
+        canvas.height = viewport.height * dpr;
+        
+        // Lock CSS layout dimensions to logical pixels
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
+
+        // Scale context drawing transform to match DPR
+        context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         const renderContext = {
           canvasContext: context,
@@ -67,6 +83,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
         renderTask = page.render(renderContext);
         await renderTask.promise;
 
+        // Render text overlay selection layer aligned to CSS dimensions
         if (textLayerRef.current) {
           textLayerRef.current.innerHTML = '';
           textLayerRef.current.style.width = `${viewport.width}px`;
@@ -162,7 +179,11 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
       ref={containerRef}
       onMouseUp={handleTextSelection}
       className="relative select-text bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl overflow-hidden self-start" 
-      style={{ width: canvasRef.current?.width || '100%', height: canvasRef.current?.height || 'auto' }}
+      style={{ 
+        width: pageSize.width ? `${pageSize.width}px` : '100%', 
+        height: pageSize.height ? `${pageSize.height}px` : 'auto',
+        minHeight: pageSize.height ? `${pageSize.height}px` : '500px'
+      }}
     >
       {loading && (
         <div className="absolute inset-0 bg-white/70 dark:bg-slate-900/80 flex items-center justify-center z-25">
@@ -183,7 +204,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
                   e.stopPropagation();
                   onSelectCapsule(capsule.id);
                 }}
-                className={`absolute pdf-highlight ${getCategoryColorClass(capsule.colorCategory)} pointer-events-auto ${
+                className={`absolute pdf-highlight ${getCategoryColorClass(capsule.colorCategory)} pointer-events-auto cursor-pointer ${
                   isSelected ? 'ring-2 ring-indigo-500' : ''
                 }`}
                 style={{
@@ -233,7 +254,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
   );
 };
 
-// 2. MAIN FLOW READER CONTAINER
+// 2. MAIN FLOW READER CONTAINER (WITH CONTAINER-FIT AUTO SCALE)
 interface PDFViewerProps {
   pdfInfo: PDFDocumentInfo;
   capsules: KnowledgeCapsuleItem[];
@@ -259,14 +280,14 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 }) => {
   const [numPages, setNumPages] = useState<number>(pdfInfo.totalPages);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [scale, setScale] = useState<number>(1.2);
+  const [scale, setScale] = useState<number>(1.1); // Dynamic scale fitting
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [hoveredCapsule, setHoveredCapsule] = useState<KnowledgeCapsuleItem | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Floating Annotation Creator Dialog State
+  // Floating Creator Dialog State
   const [activeSelection, setActiveSelection] = useState<{
     text: string;
     pageNumber: number;
@@ -280,7 +301,31 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const isSample = pdfInfo.id === SAMPLE_PDF_ID;
 
-  // Load PDF file from IndexedDB & Parse Document ONCE
+  // Auto-fit function matching window width/iPad rotation
+  const recalculateScale = async (pdfDocToUse?: any) => {
+    const container = containerRef.current;
+    if (!container || isSample) return;
+
+    const activeDoc = pdfDocToUse || pdfDocument;
+    if (!activeDoc) return;
+
+    // Use container width minus padding margins (48px)
+    const containerWidth = container.clientWidth - 48;
+    if (containerWidth <= 0) return;
+
+    try {
+      const page = await activeDoc.getPage(1);
+      const originalViewport = page.getViewport({ scale: 1.0 });
+      const fittedScale = containerWidth / originalViewport.width;
+      
+      // Keep fit zoom within standard bounds (0.5x to 2.2x)
+      setScale(Math.max(0.5, Math.min(2.2, fittedScale)));
+    } catch (err) {
+      console.error("Failed to fit scale to width", err);
+    }
+  };
+
+  // Load PDF file from IndexedDB
   useEffect(() => {
     setPdfDocument(null);
     setPdfData(null);
@@ -298,9 +343,13 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           const pdf = await loadingTask.promise;
           setPdfDocument(pdf);
           setNumPages(pdf.numPages);
+          
           if (onDocumentLoadSuccess) {
             onDocumentLoadSuccess(pdf.numPages);
           }
+          
+          // Trigger initial scale adjustment
+          await recalculateScale(pdf);
         }
       } catch (err) {
         console.error("Failed to load PDF file from DB", err);
@@ -310,6 +359,20 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     };
     loadFile();
   }, [pdfInfo.id, isSample]);
+
+  // Recalculate fitted scale on screen resize/iPad rotation
+  useEffect(() => {
+    if (isSample || !pdfDocument) return;
+
+    const handleResize = () => {
+      recalculateScale();
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [pdfDocument, isSample]);
 
   // Page read tracking
   useEffect(() => {
@@ -371,7 +434,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     const selectionRect = range.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
 
-    // Position the tooltip dialog center-above the selection
     const tooltipX = selectionRect.left - containerRect.left + container.scrollLeft + (selectionRect.width / 2) - 128;
     const tooltipY = selectionRect.top - containerRect.top + container.scrollTop;
 
@@ -445,7 +507,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     const range = selection.getRangeAt(0);
     const selectedText = selection.toString().trim();
 
-    // Get selection client rects
     const rects: { x: number; y: number; width: number; height: number }[] = [];
     const clientRects = range.getClientRects();
     
@@ -735,7 +796,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           {!isSample && (
             <div className="flex items-center gap-1 border-r border-slate-200 dark:border-slate-800 pr-3">
               <button 
-                onClick={() => setScale(prev => Math.max(0.6, prev - 0.1))}
+                onClick={() => setScale(prev => Math.max(0.4, prev - 0.1))}
                 className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-855 text-slate-655 dark:text-slate-400 cursor-pointer"
               >
                 <ZoomOut className="h-3.5 w-3.5" />
@@ -771,7 +832,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       <div 
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto flex flex-col items-center gap-8 p-6 bg-slate-50/50 dark:bg-slate-950/20 scroll-smooth"
+        className="flex-1 overflow-y-auto flex flex-col items-center gap-8 p-6 bg-slate-550/50 dark:bg-slate-950/20 scroll-smooth w-full"
       >
         {/* Loading Indicator */}
         {loading && !pdfDocument && !isSample && (
@@ -800,7 +861,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 
         {/* 2. REAL PDF FLOW RENDERER */}
         {!isSample && pdfDocument && (
-          <div className="flex flex-col gap-8 w-full max-w-2xl">
+          <div className="flex flex-col gap-8 w-full items-center">
             {Array.from({ length: numPages }, (_, i) => i + 1).map((p) => (
               <div 
                 key={p} 
@@ -860,7 +921,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
               placeholder="Name this concept..."
               value={newCapsuleLabel}
               onChange={(e) => setNewCapsuleLabel(e.target.value)}
-              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-white"
               autoFocus
               required
             />
