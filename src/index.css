@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased selection:bg-indigo-500/20 selection:text-indigo-900 transition-colors duration-200;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  }
+  
+  .dark body {
+    @apply bg-[#0c0d12] text-slate-100 selection:bg-indigo-400/30 selection:text-indigo-200;
+  }
+}
+
+/* Glassmorphism custom classes */
+.glass-panel {
+  @apply bg-white/70 backdrop-blur-md border border-slate-200/80 shadow-sm;
+}
+.dark .glass-panel {
+  @apply bg-slate-900/70 backdrop-blur-md border-slate-800/80 shadow-md;
+}
+
+.glass-card {
+  @apply bg-white/40 backdrop-blur-sm border border-slate-200/50 hover:bg-white/60 transition-all duration-200;
+}
+.dark .glass-card {
+  @apply bg-slate-900/40 backdrop-blur-sm border-slate-800/50 hover:bg-slate-900/60 transition-all duration-200;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300/60 rounded-full hover:bg-slate-400/80 transition-colors;
+}
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-slate-800/60 rounded-full hover:bg-slate-700/80;
+}
+
+/* Highlights overlay customization */
+.pdf-highlight {
+  @apply relative cursor-pointer mix-blend-multiply dark:mix-blend-screen rounded-sm transition-all duration-200 hover:brightness-95;
+}
+
+/* Custom categories configuration */
+.hl-yellow { background-color: rgba(253, 224, 71, 0.4); }
+.hl-blue { background-color: rgba(147, 197, 253, 0.4); }
+.hl-green { background-color: rgba(134, 239, 172, 0.4); }
+.hl-purple { background-color: rgba(216, 180, 254, 0.4); }
+.hl-red { background-color: rgba(252, 165, 165, 0.4); }
+.hl-orange { background-color: rgba(253, 186, 116, 0.4); }
+
+.dark .hl-yellow { background-color: rgba(253, 224, 71, 0.25); }
+.dark .hl-blue { background-color: rgba(59, 130, 246, 0.25); }
+.dark .hl-green { background-color: rgba(34, 197, 94, 0.25); }
+.dark .hl-purple { background-color: rgba(168, 85, 247, 0.25); }
+.dark .hl-red { background-color: rgba(239, 68, 68, 0.25); }
+.dark .hl-orange { background-color: rgba(249, 115, 22, 0.25); }
+
+/* Progress ring drawing animation */
+@keyframes dash {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.progress-ring-circle {
+  transition: stroke-dashoffset 0.35s;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+/* Text layer rendering customization for PDF.js */
+.textLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 0.2;
+  line-height: 1;
+  mix-blend-mode: multiply;
+}
+
+.textLayer span {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
