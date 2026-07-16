@@ -54,7 +54,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const processFile = (file: File) => {
-    if (file.type !== 'application/pdf') {
+    const isPDF = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPDF) {
       alert('Only PDF files are supported.');
       return;
     }
@@ -131,13 +132,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
               className="pl-9 pr-4 py-2 text-sm w-60 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
             />
           </div>
-          <button
-            onClick={triggerFileInput}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-sm cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            Upload PDF
-          </button>
           <input
             type="file"
             ref={fileInputRef}
