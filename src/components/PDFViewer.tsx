@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight, 
-  BookOpen, Eye, EyeOff, CheckCircle, RefreshCw, Bookmark
+  BookOpen, CheckCircle, RefreshCw, Bookmark
 } from 'lucide-react';
 import * as pdfjs from 'pdfjs-dist';
 import { getPDFFile, KnowledgeCapsuleItem, PDFDocumentInfo } from '../utils/storage';
@@ -12,6 +12,229 @@ import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 // Setup worker
 pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
+// 1. MODULE FOR RENDERING A SINGLE PAGE CANVAS OF A REAL PDF
+interface PageCanvasProps {
+  pdfData: ArrayBuffer;
+  pageNumber: number;
+  scale: number;
+  readingMode: 'clean' | 'study' | 'research' | 'review';
+  capsules: KnowledgeCapsuleItem[];
+  selectedCapsuleId: string | null;
+  onSelectCapsule: (id: string) => void;
+  onMarkerHover: (e: React.MouseEvent, capsule: KnowledgeCapsuleItem) => void;
+  onMarkerLeave: () => void;
+  onSelectText: (text: string, pageNumber: number, rects: { x: number; y: number; width: number; height: number }[]) => void;
+}
+
+const PageCanvas: React.FC<PageCanvasProps> = ({
+  pdfData,
+  pageNumber,
+  scale,
+  readingMode,
+  capsules,
+  selectedCapsuleId,
+  onSelectCapsule,
+  onMarkerHover,
+  onMarkerLeave,
+  onSelectText
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!pdfData || !canvasRef.current) return;
+
+    let renderTask: any = null;
+    const renderPage = async () => {
+      setLoading(true);
+      try {
+        const loadingTask = pdfjs.getDocument({ data: pdfData });
+        const pdf = await loadingTask.promise;
+        const page = await pdf.getPage(pageNumber);
+        
+        const canvas = canvasRef.current!;
+        const context = canvas.getContext('2d')!;
+
+        const viewport = page.getViewport({ scale });
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        const renderContext = {
+          canvasContext: context,
+          viewport: viewport,
+          canvas: canvas
+        };
+        renderTask = page.render(renderContext);
+        await renderTask.promise;
+
+        if (textLayerRef.current) {
+          textLayerRef.current.innerHTML = '';
+          textLayerRef.current.style.width = `${viewport.width}px`;
+          textLayerRef.current.style.height = `${viewport.height}px`;
+
+          const textContent = await page.getTextContent();
+          const textLayer = new pdfjs.TextLayer({
+            textContentSource: textContent,
+            container: textLayerRef.current,
+            viewport: viewport
+          });
+          await textLayer.render();
+        }
+      } catch (err) {
+        console.error("Error rendering PDF page " + pageNumber, err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    renderPage();
+
+    return () => {
+      if (renderTask) {
+        renderTask.cancel();
+      }
+    };
+  }, [pdfData, pageNumber, scale]);
+
+  const handleTextSelection = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
+
+    const range = selection.getRangeAt(0);
+    const selectedText = selection.toString().trim();
+    const isInsideContainer = containerRef.current?.contains(range.commonAncestorContainer);
+    if (!isInsideContainer) return;
+
+    const rects: { x: number; y: number; width: number; height: number }[] = [];
+    const clientRects = range.getClientRects();
+    const containerRect = containerRef.current!.getBoundingClientRect();
+
+    for (let i = 0; i < clientRects.length; i++) {
+      const r = clientRects[i];
+      // Normalize rect coordinates against scaling
+      rects.push({
+        x: (r.left - containerRect.left) / scale,
+        y: (r.top - containerRect.top) / scale,
+        width: r.width / scale,
+        height: r.height / scale
+      });
+    }
+
+    if (rects.length > 0) {
+      onSelectText(selectedText, pageNumber, rects);
+    }
+  };
+
+  const pageCapsules = capsules.filter(c => {
+    if (c.pageNumber !== pageNumber) return false;
+    if (readingMode === 'review') {
+      return c.progressStatus !== 'mastered';
+    }
+    return true;
+  });
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'not-started': return '#94a3b8';
+      case 'learning': return '#f59e0b';
+      case 'partial': return '#f97316';
+      case 'understood': return '#3b82f6';
+      case 'mastered': return '#10b981';
+      default: return '#94a3b8';
+    }
+  };
+
+  const getCategoryColorClass = (cat: string) => {
+    switch (cat) {
+      case 'yellow': return 'hl-yellow';
+      case 'blue': return 'hl-blue';
+      case 'green': return 'hl-green';
+      case 'purple': return 'hl-purple';
+      case 'red': return 'hl-red';
+      case 'orange': return 'hl-orange';
+      default: return 'hl-yellow';
+    }
+  };
+
+  return (
+    <div 
+      ref={containerRef}
+      onMouseUp={handleTextSelection}
+      className="relative select-text bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl overflow-hidden self-start" 
+      style={{ width: canvasRef.current?.width || '100%', height: canvasRef.current?.height || 'auto' }}
+    >
+      {loading && (
+        <div className="absolute inset-0 bg-white/70 dark:bg-slate-900/80 flex items-center justify-center z-20">
+          <RefreshCw className="h-5 w-5 text-indigo-500 animate-spin" />
+        </div>
+      )}
+      <canvas ref={canvasRef} className="block select-none" />
+      <div ref={textLayerRef} className="textLayer" />
+      
+      {readingMode !== 'clean' && pageCapsules.map((capsule) => {
+        const isSelected = selectedCapsuleId === capsule.id;
+        return (
+          <div key={capsule.id} className="absolute inset-0 pointer-events-none">
+            {capsule.highlightRects.map((rect, idx) => (
+              <div
+                key={idx}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectCapsule(capsule.id);
+                }}
+                className={`absolute pdf-highlight ${getCategoryColorClass(capsule.colorCategory)} pointer-events-auto ${
+                  isSelected ? 'ring-2 ring-indigo-500' : ''
+                }`}
+                style={{
+                  left: `${rect.x * scale}px`,
+                  top: `${rect.y * scale}px`,
+                  width: `${rect.width * scale}px`,
+                  height: `${rect.height * scale}px`
+                }}
+              />
+            ))}
+
+            {capsule.highlightRects.length > 0 && (() => {
+              const lastRect = capsule.highlightRects[capsule.highlightRects.length - 1];
+              const markerX = (lastRect.x + lastRect.width) * scale;
+              const markerY = lastRect.y * scale;
+
+              return (
+                <div
+                  className="absolute pointer-events-auto z-10 select-none cursor-pointer flex items-center justify-center animate-scale-up"
+                  style={{
+                    left: `${markerX + 4}px`,
+                    top: `${markerY - 2}px`
+                  }}
+                  onClick={() => onSelectCapsule(capsule.id)}
+                  onMouseEnter={(e) => onMarkerHover(e, capsule)}
+                  onMouseLeave={onMarkerLeave}
+                >
+                  <svg className="w-5 h-5">
+                    <circle cx="10" cy="10" r="7" className="stroke-slate-200 dark:stroke-slate-800 fill-none" strokeWidth="2.5" />
+                    <circle 
+                      cx="10" cy="10" r="7" 
+                      className="progress-ring-circle fill-none" 
+                      stroke={getStatusColor(capsule.progressStatus)}
+                      strokeWidth="2.5" 
+                      strokeDasharray={2 * Math.PI * 7}
+                      strokeDashoffset={2 * Math.PI * 7 * (1 - (capsule.progressStatus === 'mastered' ? 1.0 : capsule.progressStatus === 'understood' ? 0.75 : capsule.progressStatus === 'partial' ? 0.5 : capsule.progressStatus === 'learning' ? 0.25 : 0))}
+                    />
+                  </svg>
+                  <span className="absolute text-[8px] font-bold text-slate-805 dark:text-slate-100">{capsule.number}</span>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// 2. MAIN FLOW READER CONTAINER
 interface PDFViewerProps {
   pdfInfo: PDFDocumentInfo;
   capsules: KnowledgeCapsuleItem[];
@@ -43,8 +266,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const [hoveredCapsule, setHoveredCapsule] = useState<KnowledgeCapsuleItem | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const textLayerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isSample = pdfInfo.id === SAMPLE_PDF_ID;
 
@@ -57,6 +278,15 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       try {
         const data = await getPDFFile(pdfInfo.id);
         setPdfData(data);
+        
+        if (data) {
+          const loadingTask = pdfjs.getDocument({ data });
+          const pdf = await loadingTask.promise;
+          setNumPages(pdf.numPages);
+          if (onDocumentLoadSuccess) {
+            onDocumentLoadSuccess(pdf.numPages);
+          }
+        }
       } catch (err) {
         console.error("Failed to load PDF file from DB", err);
       } finally {
@@ -71,104 +301,55 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     onPageRead(currentPage);
   }, [currentPage]);
 
-  // Render PDF page using PDF.js
-  useEffect(() => {
-    if (isSample || !pdfData || !canvasRef.current) return;
+  // Detect which page is currently in view during scroll
+  const handleScroll = () => {
+    const container = containerRef.current;
+    if (!container) return;
 
-    let renderTask: any = null;
-    const renderPage = async () => {
-      try {
-        const loadingTask = pdfjs.getDocument({ data: pdfData });
-        const pdf = await loadingTask.promise;
-        setNumPages(pdf.numPages);
-        if (onDocumentLoadSuccess) {
-          onDocumentLoadSuccess(pdf.numPages);
-        }
-        
-        const page = await pdf.getPage(currentPage);
-        const canvas = canvasRef.current!;
-        const context = canvas.getContext('2d')!;
+    const pageElements = container.querySelectorAll('[data-page]');
+    if (pageElements.length === 0) return;
 
-        const viewport = page.getViewport({ scale });
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
+    const containerRect = container.getBoundingClientRect();
+    const viewportCenter = containerRect.top + containerRect.height / 2;
 
-        // Render PDF page into canvas context
-        const renderContext = {
-          canvasContext: context,
-          viewport: viewport,
-          canvas: canvas
-        };
-        renderTask = page.render(renderContext);
-        await renderTask.promise;
+    let closestPage = 1;
+    let minDistance = Infinity;
 
-        // Render text layer overlay for selection
-        if (textLayerRef.current) {
-          textLayerRef.current.innerHTML = '';
-          textLayerRef.current.style.width = `${viewport.width}px`;
-          textLayerRef.current.style.height = `${viewport.height}px`;
+    pageElements.forEach((el) => {
+      const rect = el.getBoundingClientRect();
+      const pageCenter = rect.top + rect.height / 2;
+      const distance = Math.abs(viewportCenter - pageCenter);
 
-          const textContent = await page.getTextContent();
-          const textLayer = new pdfjs.TextLayer({
-            textContentSource: textContent,
-            container: textLayerRef.current,
-            viewport: viewport
-          });
-          await textLayer.render();
-        }
-      } catch (err) {
-        console.error("Error rendering PDF page", err);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestPage = parseInt(el.getAttribute('data-page') || '1');
       }
-    };
+    });
 
-    renderPage();
-
-    return () => {
-      if (renderTask) {
-        renderTask.cancel();
-      }
-    };
-  }, [pdfData, currentPage, scale, isSample]);
-
-  // Handle Text Selection in Document
-  const handleTextSelection = () => {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
-
-    const range = selection.getRangeAt(0);
-    const selectedText = selection.toString().trim();
-
-    // Check if the selection is inside our document container
-    const isInsideContainer = containerRef.current?.contains(range.commonAncestorContainer);
-    if (!isInsideContainer) return;
-
-    // Get selection client rects to position the highlight overlay
-    const rects: { x: number; y: number; width: number; height: number }[] = [];
-    const clientRects = range.getClientRects();
-    const containerRect = containerRef.current!.getBoundingClientRect();
-
-    for (let i = 0; i < clientRects.length; i++) {
-      const r = clientRects[i];
-      rects.push({
-        x: r.left - containerRect.left,
-        y: r.top - containerRect.top + containerRef.current!.scrollTop,
-        width: r.width,
-        height: r.height
-      });
+    if (closestPage !== currentPage) {
+      setCurrentPage(closestPage);
     }
+  };
 
-    if (rects.length > 0) {
-      onSelectText(selectedText, currentPage, rects);
+  // Scroll to a specific page programmatically (e.g. from buttons,bookmarks,TOC)
+  const scrollToPage = (pageNumber: number) => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const targetEl = container.querySelector(`[data-page="${pageNumber}"]`);
+    if (targetEl) {
+      targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setCurrentPage(pageNumber);
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'not-started': return '#94a3b8'; // Slate
-      case 'learning': return '#f59e0b'; // Amber/Yellow
-      case 'partial': return '#f97316'; // Orange
-      case 'understood': return '#3b82f6'; // Blue
-      case 'mastered': return '#10b981'; // Emerald/Green
+      case 'not-started': return '#94a3b8';
+      case 'learning': return '#f59e0b';
+      case 'partial': return '#f97316';
+      case 'understood': return '#3b82f6';
+      case 'mastered': return '#10b981';
       default: return '#94a3b8';
     }
   };
@@ -184,31 +365,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     }
   };
 
-  const getCategoryColorClass = (cat: string) => {
-    switch (cat) {
-      case 'yellow': return 'hl-yellow';
-      case 'blue': return 'hl-blue';
-      case 'green': return 'hl-green';
-      case 'purple': return 'hl-purple';
-      case 'red': return 'hl-red';
-      case 'orange': return 'hl-orange';
-      default: return 'hl-yellow';
-    }
-  };
-
-  // Filter capsules by page and reading mode filter
-  const pageCapsules = capsules.filter(c => {
-    if (c.pdfId !== pdfInfo.id) return false;
-    if (c.pageNumber !== currentPage) return false;
-    
-    // In Review Mode, hide mastered concepts to focus only on incomplete/struggling items
-    if (readingMode === 'review') {
-      return c.progressStatus !== 'mastered';
-    }
-    
-    return true;
-  });
-
   const handleMarkerHover = (e: React.MouseEvent, capsule: KnowledgeCapsuleItem) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const containerRect = containerRef.current!.getBoundingClientRect();
@@ -223,29 +379,64 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     setHoveredCapsule(null);
   };
 
-  // Render pre-packaged interactive sample
-  const renderSampleContent = () => {
-    // 4 Pages of Mock Scientific Paper
-    if (currentPage === 1) {
+  // Selection handler for sample HTML view
+  const handleSampleTextSelection = (pageNumber: number) => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
+
+    const range = selection.getRangeAt(0);
+    const selectedText = selection.toString().trim();
+
+    // Get selection client rects
+    const rects: { x: number; y: number; width: number; height: number }[] = [];
+    const clientRects = range.getClientRects();
+    
+    // Find the page container element
+    const pageEl = containerRef.current?.querySelector(`[data-page="${pageNumber}"]`);
+    if (!pageEl) return;
+    const pageRect = pageEl.getBoundingClientRect();
+
+    for (let i = 0; i < clientRects.length; i++) {
+      const r = clientRects[i];
+      rects.push({
+        x: r.left - pageRect.left,
+        y: r.top - pageRect.top,
+        width: r.width,
+        height: r.height
+      });
+    }
+
+    if (rects.length > 0) {
+      onSelectText(selectedText, pageNumber, rects);
+    }
+  };
+
+  // Render individual mock sample page
+  const renderSamplePage = (p: number) => {
+    if (p === 1) {
       return (
-        <div className="prose dark:prose-invert max-w-none px-12 py-10">
+        <div 
+          className="prose dark:prose-invert max-w-none px-12 py-10 select-text"
+          onMouseUp={() => handleSampleTextSelection(1)}
+        >
           <div className="text-center mb-8 border-b border-slate-200 dark:border-slate-800 pb-6">
-            <h1 className="text-2xl font-extrabold text-slate-800 dark:text-white leading-tight mb-2">
+            <h1 className="text-2xl font-extrabold text-slate-850 dark:text-white leading-tight mb-2">
               Pathological Mechanisms of Alzheimer's Disease: Tau Hyperphosphorylation and Amyloid-Beta Cascades
             </h1>
-            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+            <p className="text-xs font-semibold text-slate-405 dark:text-slate-500 uppercase tracking-widest">
               Department of Neurobiology, Brain Research Institute | Published 2026
             </p>
           </div>
 
           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-6 mb-2">1. Abstract & Introduction</h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
+          <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4">
             Alzheimer's Disease (AD) is characterized pathologically by extracellular amyloid-beta deposits and intracellular neurofibrillary tangles. While these pathological marks have been documented for decades, the precise molecular kinetics coupling amyloid cleavages to cellular transport collapse remain under active debate. Understanding the biochemical switches that regulate synapse viability is paramount to developing successful disease-modifying therapies.
           </p>
 
           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-8 mb-2">2. The Role of Tau Hyperphosphorylation</h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4 relative">
+          <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4 relative">
             Neurons maintain a complex polar shape supported by an internal skeleton. Under physiological conditions, healthy tau protein binds to tubulin monomers, promoting microtubule polymerization. However, in pathological states, excess kinase activation alters tau folding. Specifically, 
+            {" "}
             <span 
               onClick={() => onSelectCapsule('capsule-1')}
               className={`pdf-highlight hl-yellow font-medium transition cursor-pointer px-1 rounded ${
@@ -261,7 +452,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                 onMouseEnter={(e) => handleMarkerHover(e, capsules.find(c => c.id === 'capsule-1')!)}
                 onMouseLeave={handleMarkerLeave}
               >
-                {/* SVG Progress Ring */}
                 <svg className="w-5 h-5 flex items-center justify-center">
                   <circle cx="10" cy="10" r="7" className="stroke-slate-200 dark:stroke-slate-800 fill-none" strokeWidth="2.5" />
                   <circle 
@@ -270,7 +460,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                     stroke={getStatusColor(capsules.find(c => c.id === 'capsule-1')?.progressStatus || 'learning')}
                     strokeWidth="2.5" 
                     strokeDasharray={2 * Math.PI * 7}
-                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.4)} // 40% complete circle
+                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.4)}
                   />
                 </svg>
                 <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-200">①</span>
@@ -279,23 +469,22 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             {" "}
             This disruption halts the flow of essential organelles, including vesicles containing trophic factors and mitochondria, to synapses located up to a meter away from the cell body. Without these resources, terminals go through synaptic pruning and cellular apoptosis.
           </p>
-
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
-            Recent studies have focused on Glycogen Synthase Kinase 3 Beta (GSK-3β) and Cyclin-Dependent Kinase 5 (CDK5) as key drivers. Aberrant calcium entry activates calpain, which cleaves CDK5's regulatory subunit p35 to the hyperactive p25 form, causing prolonged tau phosphorylation.
-          </p>
         </div>
       );
     }
     
-    if (currentPage === 2) {
+    if (p === 2) {
       return (
-        <div className="prose dark:prose-invert max-w-none px-12 py-10">
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">3. Amyloid-Beta Accumulation & Synaptic Toxicity</h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
+        <div 
+          className="prose dark:prose-invert max-w-none px-12 py-10 select-text"
+          onMouseUp={() => handleSampleTextSelection(2)}
+        >
+          <h3 className="text-lg font-bold text-slate-855 dark:text-slate-200 mb-2">3. Amyloid-Beta Accumulation & Synaptic Toxicity</h3>
+          <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4">
             The processing of amyloid precursor protein (APP) determines whether toxic peptides accumulate. The amyloidogenic pathway requires initial cutting by beta-secretase (BACE1), followed by the gamma-secretase complex.
           </p>
           
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
+          <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4">
             Physiologically, alpha-secretase cleaves within the amyloid-beta sequence, producing a neuroprotective soluble APP alpha fragment. Under disease conditions, the balance shifts towards BACE1 cutting. Consequently,
             {" "}
             <span 
@@ -321,35 +510,31 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                     stroke={getStatusColor(capsules.find(c => c.id === 'capsule-2')?.progressStatus || 'understood')}
                     strokeWidth="2.5" 
                     strokeDasharray={2 * Math.PI * 7}
-                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.75)} // 75% complete circle
+                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.75)}
                   />
                 </svg>
-                <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-200">②</span>
+                <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-250">②</span>
               </span>
             )}
             {" "}
             It is critical to note that while plaques are highly visible diagnostic features, soluble Aβ oligomers represent the primary cytotoxic elements. These oligomers bind to NMDA receptors, triggering excess calcium influx and downstream calcineurin activation.
           </p>
-
-          <div className="my-6 p-4 bg-slate-100/50 dark:bg-slate-900/50 border border-slate-200/50 dark:border-slate-800/50 rounded-xl text-center">
-            <span className="text-xs font-semibold text-slate-400 block uppercase mb-1">Figure 1.1: APP Cleavage pathways</span>
-            <div className="h-28 bg-slate-200/50 dark:bg-slate-800/50 rounded-lg flex items-center justify-center text-xs text-slate-400">
-              [Diagram: APP → Alpha Cleavage (Non-toxic) vs. Beta/Gamma Cleavage (Aβ42 Oligomers)]
-            </div>
-          </div>
         </div>
       );
     }
 
-    if (currentPage === 3) {
+    if (p === 3) {
       return (
-        <div className="prose dark:prose-invert max-w-none px-12 py-10">
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">4. Mitochondrial Dysfunction & Oxidative Stress</h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
+        <div 
+          className="prose dark:prose-invert max-w-none px-12 py-10 select-text"
+          onMouseUp={() => handleSampleTextSelection(3)}
+        >
+          <h3 className="text-lg font-bold text-slate-855 dark:text-slate-200 mb-2">4. Mitochondrial Dysfunction & Oxidative Stress</h3>
+          <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4">
             Neurons are heavily dependent on mitochondrial ATP production due to high energy costs of synaptic transmission and active ion transport. In AD, mitochondrial health declines long before large aggregates appear.
           </p>
 
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
+          <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4">
             Electron Transport Chain enzymes (ETC) are vulnerable to direct damage by oligomeric beta-amyloid. In particular, binding to Aβ-binding alcohol dehydrogenase (ABAD) disrupts dehydrogenase function. Thus,
             {" "}
             <span 
@@ -375,7 +560,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                     stroke={getStatusColor(capsules.find(c => c.id === 'capsule-3')?.progressStatus || 'partial')}
                     strokeWidth="2.5" 
                     strokeDasharray={2 * Math.PI * 7}
-                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.5)} // 50% complete circle
+                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.5)}
                   />
                 </svg>
                 <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-200">③</span>
@@ -388,15 +573,18 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       );
     }
 
-    if (currentPage === 4) {
+    if (p === 4) {
       return (
-        <div className="prose dark:prose-invert max-w-none px-12 py-10">
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">5. Clinical Diagnostic Biomarkers</h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
+        <div 
+          className="prose dark:prose-invert max-w-none px-12 py-10 select-text"
+          onMouseUp={() => handleSampleTextSelection(4)}
+        >
+          <h3 className="text-lg font-bold text-slate-855 dark:text-slate-200 mb-2">5. Clinical Diagnostic Biomarkers</h3>
+          <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4">
             Early clinical diagnostics of AD are moving towards physiological neural signaling tests. Cognitive networks require highly coordinated firing between cortical hubs.
           </p>
 
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">
+          <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4">
             Recent studies have used EEG recordings to look for changes in network dynamics during working memory tasks. As synapses degrade, synchronization between the prefrontal cortex and the hippocampus decays. As a direct indicator,
             {" "}
             <span 
@@ -422,10 +610,10 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                     stroke={getStatusColor(capsules.find(c => c.id === 'capsule-4')?.progressStatus || 'not-started')}
                     strokeWidth="2.5" 
                     strokeDasharray={2 * Math.PI * 7}
-                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.1)} // 10% complete circle
+                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.1)}
                   />
                 </svg>
-                <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-200">④</span>
+                <span className="absolute text-[8px] font-bold text-slate-805 dark:text-slate-100">④</span>
               </span>
             )}
             {" "}
@@ -434,12 +622,14 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         </div>
       );
     }
+    return null;
   };
 
   const hasBookmark = pdfInfo.bookmarks.includes(currentPage);
 
   return (
     <div className="flex flex-col h-full bg-slate-100/40 dark:bg-[#0f1118]/40 border border-slate-200 dark:border-slate-800/80 rounded-2xl overflow-hidden shadow-inner relative">
+      
       {/* Top Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md z-10">
         <div className="flex items-center gap-3">
@@ -447,49 +637,50 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           <span className="text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1 max-w-[200px]">
             {pdfInfo.name.replace(/_/g, ' ')}
           </span>
-          <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-semibold uppercase">
-            Mode: {readingMode}
+          <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-450 font-semibold uppercase">
+            Flow Mode
           </span>
         </div>
 
         {/* Navigation & Zoom controls */}
         <div className="flex items-center gap-3">
-          {/* Page nav */}
+          
+          {/* Page scrolling selector */}
           <div className="flex items-center gap-1.5 border-r border-slate-200 dark:border-slate-800 pr-3">
             <button 
               disabled={currentPage <= 1}
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-400 cursor-pointer"
+              onClick={() => scrollToPage(currentPage - 1)}
+              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-650 dark:text-slate-400 cursor-pointer"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <span className="text-xs font-semibold text-slate-500">
+            <span className="text-xs font-semibold text-slate-550 w-12 text-center select-none">
               {currentPage} / {numPages}
             </span>
             <button 
               disabled={currentPage >= numPages}
-              onClick={() => setCurrentPage(prev => Math.min(numPages, prev + 1))}
-              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-400 cursor-pointer"
+              onClick={() => scrollToPage(currentPage + 1)}
+              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-650 dark:text-slate-400 cursor-pointer"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
 
-          {/* Scale controls (only for real PDFs) */}
+          {/* Scale controls */}
           {!isSample && (
             <div className="flex items-center gap-1 border-r border-slate-200 dark:border-slate-800 pr-3">
               <button 
                 onClick={() => setScale(prev => Math.max(0.6, prev - 0.1))}
-                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-600 dark:text-slate-400 cursor-pointer"
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-650 dark:text-slate-400 cursor-pointer"
               >
                 <ZoomOut className="h-3.5 w-3.5" />
               </button>
-              <span className="text-[10px] font-semibold text-slate-500 w-10 text-center">
+              <span className="text-[10px] font-semibold text-slate-500 w-10 text-center select-none">
                 {Math.round(scale * 100)}%
               </span>
               <button 
                 onClick={() => setScale(prev => Math.min(2.5, prev + 0.1))}
-                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-600 dark:text-slate-400 cursor-pointer"
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-650 dark:text-slate-400 cursor-pointer"
               >
                 <ZoomIn className="h-3.5 w-3.5" />
               </button>
@@ -511,142 +702,111 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         </div>
       </div>
 
-      {/* Main Document View Canvas */}
+      {/* Main Flow Scrollable Container */}
       <div 
         ref={containerRef}
-        onMouseUp={handleTextSelection}
-        className="flex-1 overflow-y-auto flex justify-center p-6 bg-slate-50/50 dark:bg-slate-950/20"
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto flex flex-col items-center gap-8 p-6 bg-slate-50/50 dark:bg-slate-950/20 scroll-smooth"
       >
-        <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl overflow-hidden max-w-2xl w-full self-start">
-          {/* Loading Indicator */}
-          {loading && (
-            <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 flex items-center justify-center z-25">
-              <div className="flex flex-col items-center gap-2">
-                <RefreshCw className="h-6 w-6 text-indigo-500 animate-spin" />
-                <span className="text-xs text-slate-500 font-semibold">Rendering PDF page...</span>
-              </div>
-            </div>
-          )}
-
-          {/* 1. MOCK SAMPLE RENDERER */}
-          {isSample && renderSampleContent()}
-
-          {/* 2. REAL PDF RENDERER (Canvas + TextLayer) */}
-          {!isSample && (
-            <div className="relative select-text" style={{ width: canvasRef.current?.width || '100%', height: canvasRef.current?.height || 'auto' }}>
-              <canvas ref={canvasRef} className="block select-none" />
-              <div ref={textLayerRef} className="textLayer" />
-              
-              {/* Highlight overlays & markers on real PDF. Coordinates must scale with PDF.js */}
-              {readingMode !== 'clean' && pageCapsules.map((capsule) => {
-                const isSelected = selectedCapsuleId === capsule.id;
-                return (
-                  <div key={capsule.id} className="absolute inset-0 pointer-events-none">
-                    {/* Draw high-fidelity highlight rectangles over text */}
-                    {capsule.highlightRects.map((rect, idx) => (
-                      <div
-                        key={idx}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectCapsule(capsule.id);
-                        }}
-                        className={`absolute pdf-highlight ${getCategoryColorClass(capsule.colorCategory)} pointer-events-auto ${
-                          isSelected ? 'ring-2 ring-indigo-500' : ''
-                        }`}
-                        style={{
-                          left: `${rect.x * scale}px`,
-                          top: `${rect.y * scale}px`,
-                          width: `${rect.width * scale}px`,
-                          height: `${rect.height * scale}px`
-                        }}
-                      />
-                    ))}
-
-                    {/* Draw marker at the end of the last rectangle */}
-                    {capsule.highlightRects.length > 0 && (() => {
-                      const lastRect = capsule.highlightRects[capsule.highlightRects.length - 1];
-                      const markerX = (lastRect.x + lastRect.width) * scale;
-                      const markerY = lastRect.y * scale;
-
-                      return (
-                        <div
-                          className="absolute pointer-events-auto z-10 select-none cursor-pointer flex items-center justify-center"
-                          style={{
-                            left: `${markerX + 4}px`,
-                            top: `${markerY - 2}px`
-                          }}
-                          onClick={() => onSelectCapsule(capsule.id)}
-                          onMouseEnter={(e) => handleMarkerHover(e, capsule)}
-                          onMouseLeave={handleMarkerLeave}
-                        >
-                          <svg className="w-5 h-5">
-                            <circle cx="10" cy="10" r="7" className="stroke-slate-200 dark:stroke-slate-800 fill-none" strokeWidth="2.5" />
-                            <circle 
-                              cx="10" cy="10" r="7" 
-                              className="progress-ring-circle fill-none" 
-                              stroke={getStatusColor(capsule.progressStatus)}
-                              strokeWidth="2.5" 
-                              strokeDasharray={2 * Math.PI * 7}
-                              strokeDashoffset={2 * Math.PI * 7 * (1 - (capsule.progressStatus === 'mastered' ? 1.0 : capsule.progressStatus === 'understood' ? 0.75 : capsule.progressStatus === 'partial' ? 0.5 : capsule.progressStatus === 'learning' ? 0.25 : 0))}
-                            />
-                          </svg>
-                          <span className="absolute text-[8px] font-bold text-slate-850 dark:text-slate-100">{capsule.number}</span>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Text selection indicator tooltip helper */}
-          <div className="absolute bottom-4 right-4 bg-slate-900/90 text-white text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-md pointer-events-none select-none z-10 opacity-70">
-            <BookOpen className="h-3 w-3 text-indigo-400" />
-            <span>Highlight text to create a Capsule</span>
-          </div>
-        </div>
-
-        {/* Hover Quick Preview Card */}
-        {hoveredCapsule && (
-          <div 
-            className="absolute z-30 w-72 glass-panel p-4 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 pointer-events-none animate-scale-up"
-            style={{
-              left: `${hoverPosition.x}px`,
-              top: `${hoverPosition.y}px`
-            }}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${getStatusTailwindColor(hoveredCapsule.progressStatus)}`}>
-                <CheckCircle className="h-3 w-3" />
-                {hoveredCapsule.progressStatus.replace('-', ' ').toUpperCase()}
-              </span>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Capsule {hoveredCapsule.number}
-              </span>
-            </div>
-            
-            <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-1">
-              <span>{hoveredCapsule.number}.</span>
-              <span>{hoveredCapsule.label || 'Untitled'}</span>
-            </h4>
-            
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
-              {hoveredCapsule.notes.replace(/[#*`_-]/g, '').trim()}
-            </p>
-            
-            {hoveredCapsule.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2.5">
-                {hoveredCapsule.tags.slice(0, 3).map((tag, i) => (
-                  <span key={i} className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 px-1.5 py-0.5 rounded">
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            )}
+        {/* Loading Indicator */}
+        {loading && !pdfData && !isSample && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2">
+            <RefreshCw className="h-6 w-6 text-indigo-500 animate-spin" />
+            <span className="text-xs text-slate-500 font-semibold">Reading PDF structures...</span>
           </div>
         )}
+
+        {/* 1. INTERACTIVE MOCK SAMPLE PAPER (Flow Mode) */}
+        {isSample && (
+          <div className="flex flex-col gap-8 w-full max-w-2xl">
+            {[1, 2, 3, 4].map((p) => (
+              <div 
+                key={p} 
+                data-page={p}
+                className={`page-container bg-white dark:bg-slate-900 border shadow-sm rounded-xl overflow-hidden w-full transition-all duration-300 ${
+                  currentPage === p ? 'border-slate-300 dark:border-slate-750 ring-1 ring-slate-200 dark:ring-slate-800' : 'border-slate-200 dark:border-slate-850 opacity-90'
+                }`}
+              >
+                {renderSamplePage(p)}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 2. REAL PDF FLOW RENDERER */}
+        {!isSample && pdfData && (
+          <div className="flex flex-col gap-8 w-full max-w-2xl">
+            {Array.from({ length: numPages }, (_, i) => i + 1).map((p) => (
+              <div 
+                key={p} 
+                data-page={p}
+                className={`page-container flex justify-center w-full transition-all duration-300 ${
+                  currentPage === p ? 'opacity-100 scale-100' : 'opacity-90'
+                }`}
+              >
+                <PageCanvas
+                  pdfData={pdfData}
+                  pageNumber={p}
+                  scale={scale}
+                  readingMode={readingMode}
+                  capsules={capsules}
+                  selectedCapsuleId={selectedCapsuleId}
+                  onSelectCapsule={onSelectCapsule}
+                  onMarkerHover={handleMarkerHover}
+                  onMarkerLeave={handleMarkerLeave}
+                  onSelectText={onSelectText}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Text selection indicator tooltip helper */}
+        <div className="fixed bottom-8 right-8 bg-slate-900/90 text-white text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-md pointer-events-none select-none z-10 opacity-70">
+          <BookOpen className="h-3 w-3 text-indigo-400" />
+          <span>Select text anywhere to create a Capsule</span>
+        </div>
       </div>
+
+      {/* Hover Quick Preview Card */}
+      {hoveredCapsule && (
+        <div 
+          className="absolute z-30 w-72 glass-panel p-4 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 pointer-events-none animate-scale-up"
+          style={{
+            left: `${hoverPosition.x}px`,
+            top: `${hoverPosition.y}px`
+          }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${getStatusTailwindColor(hoveredCapsule.progressStatus)}`}>
+              <CheckCircle className="h-3 w-3" />
+              {hoveredCapsule.progressStatus.replace('-', ' ').toUpperCase()}
+            </span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              Capsule {hoveredCapsule.number}
+            </span>
+          </div>
+          
+          <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-1">
+            <span>{hoveredCapsule.number}.</span>
+            <span>{hoveredCapsule.label || 'Untitled'}</span>
+          </h4>
+          
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+            {hoveredCapsule.notes.replace(/[#*`_-]/g, '').trim()}
+          </p>
+          
+          {hoveredCapsule.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-2.5">
+              {hoveredCapsule.tags.slice(0, 3).map((tag, i) => (
+                <span key={i} className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 px-1.5 py-0.5 rounded">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
