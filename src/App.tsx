@@ -144,7 +144,9 @@ export default function App() {
   const handleSelectText = (
     text: string, 
     pageNumber: number, 
-    rects: { x: number; y: number; width: number; height: number }[]
+    rects: { x: number; y: number; width: number; height: number }[],
+    label: string,
+    color: string
   ) => {
     if (!activePdfId) return;
     
@@ -156,21 +158,19 @@ export default function App() {
       ? Math.max(...pdfCaps.map(c => c.number)) + 1 
       : 1;
 
-    const shortLabel = text.split(' ').slice(0, 3).join(' ') || 'New Concept';
-
     const newCapsuleId = `capsule-${Date.now()}`;
     const newCapsule: KnowledgeCapsuleItem = {
       id: newCapsuleId,
       pdfId: activePdfId,
       pageNumber: pageNumber,
-      label: shortLabel,
+      label: label,
       number: nextNum,
       highlightText: text,
       highlightRects: rects,
-      notes: `### ${shortLabel}\n\nNotes about this selected text segment:\n> "${text}"`,
+      notes: `### ${label}\n\nNotes about this selected text segment:\n> "${text}"`,
       personalUnderstanding: '',
       progressStatus: 'not-started',
-      colorCategory: 'yellow',
+      colorCategory: color,
       versionHistory: [
         {
           version: 1,

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight, 
-  BookOpen, CheckCircle, RefreshCw, Bookmark
+  BookOpen, CheckCircle, RefreshCw, Bookmark, X, Check
 } from 'lucide-react';
 import * as pdfjs from 'pdfjs-dist';
 import { getPDFFile, KnowledgeCapsuleItem, PDFDocumentInfo } from '../utils/storage';
@@ -23,7 +23,7 @@ interface PageCanvasProps {
   onSelectCapsule: (id: string) => void;
   onMarkerHover: (e: React.MouseEvent, capsule: KnowledgeCapsuleItem) => void;
   onMarkerLeave: () => void;
-  onSelectText: (text: string, pageNumber: number, rects: { x: number; y: number; width: number; height: number }[]) => void;
+  onSelectTextReady: (text: string, pageNumber: number, rects: { x: number; y: number; width: number; height: number }[], range: Range) => void;
 }
 
 const PageCanvas: React.FC<PageCanvasProps> = ({
@@ -36,7 +36,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
   onSelectCapsule,
   onMarkerHover,
   onMarkerLeave,
-  onSelectText
+  onSelectTextReady
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
@@ -81,7 +81,6 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
           await textLayer.render();
         }
       } catch (err: any) {
-        // Prevent printing cancellation errors, which are normal during zoom/scale changes
         if (err.name !== 'RenderingCancelledException') {
           console.error("Error rendering PDF page " + pageNumber, err);
         }
@@ -114,7 +113,6 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
 
     for (let i = 0; i < clientRects.length; i++) {
       const r = clientRects[i];
-      // Normalize coordinates against the current page scale
       rects.push({
         x: (r.left - containerRect.left) / scale,
         y: (r.top - containerRect.top) / scale,
@@ -124,7 +122,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
     }
 
     if (rects.length > 0) {
-      onSelectText(selectedText, pageNumber, rects);
+      onSelectTextReady(selectedText, pageNumber, rects, range);
     }
   };
 
@@ -167,7 +165,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
       style={{ width: canvasRef.current?.width || '100%', height: canvasRef.current?.height || 'auto' }}
     >
       {loading && (
-        <div className="absolute inset-0 bg-white/70 dark:bg-slate-900/80 flex items-center justify-center z-20">
+        <div className="absolute inset-0 bg-white/70 dark:bg-slate-900/80 flex items-center justify-center z-25">
           <RefreshCw className="h-5 w-5 text-indigo-500 animate-spin" />
         </div>
       )}
@@ -240,7 +238,7 @@ interface PDFViewerProps {
   pdfInfo: PDFDocumentInfo;
   capsules: KnowledgeCapsuleItem[];
   readingMode: 'clean' | 'study' | 'research' | 'review';
-  onSelectText: (text: string, pageNumber: number, rects: { x: number; y: number; width: number; height: number }[]) => void;
+  onSelectText: (text: string, pageNumber: number, rects: { x: number; y: number; width: number; height: number }[], label: string, color: string) => void;
   onSelectCapsule: (capsuleId: string) => void;
   selectedCapsuleId: string | null;
   onToggleBookmark: (page: number) => void;
@@ -263,10 +261,21 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.2);
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
-  const [pdfDocument, setPdfDocument] = useState<any>(null); // Shared loaded PDF proxy
+  const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [hoveredCapsule, setHoveredCapsule] = useState<KnowledgeCapsuleItem | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Floating Annotation Creator Dialog State
+  const [activeSelection, setActiveSelection] = useState<{
+    text: string;
+    pageNumber: number;
+    rects: { x: number; y: number; width: number; height: number }[];
+    x: number;
+    y: number;
+  } | null>(null);
+  const [newCapsuleLabel, setNewCapsuleLabel] = useState('');
+  const [newCapsuleColor, setNewCapsuleColor] = useState('yellow');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isSample = pdfInfo.id === SAMPLE_PDF_ID;
@@ -275,6 +284,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   useEffect(() => {
     setPdfDocument(null);
     setPdfData(null);
+    setActiveSelection(null);
     if (isSample) return;
     
     const loadFile = async () => {
@@ -286,7 +296,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         if (data) {
           const loadingTask = pdfjs.getDocument({ data });
           const pdf = await loadingTask.promise;
-          setPdfDocument(pdf); // Store the shared document proxy
+          setPdfDocument(pdf);
           setNumPages(pdf.numPages);
           if (onDocumentLoadSuccess) {
             onDocumentLoadSuccess(pdf.numPages);
@@ -336,7 +346,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     }
   };
 
-  // Scroll to a specific page programmatically (e.g. from buttons,bookmarks,TOC)
+  // Scroll to page smoothly
   const scrollToPage = (pageNumber: number) => {
     const container = containerRef.current;
     if (!container) return;
@@ -346,6 +356,49 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
       setCurrentPage(pageNumber);
     }
+  };
+
+  // Handles text selection callback from page canvas
+  const handleSelectTextReady = (
+    text: string, 
+    pageNumber: number, 
+    rects: { x: number; y: number; width: number; height: number }[],
+    range: Range
+  ) => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const selectionRect = range.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+
+    // Position the tooltip dialog center-above the selection
+    const tooltipX = selectionRect.left - containerRect.left + container.scrollLeft + (selectionRect.width / 2) - 128;
+    const tooltipY = selectionRect.top - containerRect.top + container.scrollTop;
+
+    setActiveSelection({
+      text,
+      pageNumber,
+      rects,
+      x: Math.max(10, Math.min(container.clientWidth - 270, tooltipX)),
+      y: tooltipY
+    });
+    setNewCapsuleLabel('');
+    setNewCapsuleColor('yellow');
+  };
+
+  const handleConfirmCreateCapsule = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!activeSelection) return;
+
+    const label = newCapsuleLabel.trim() || 'Concept';
+    onSelectText(
+      activeSelection.text,
+      activeSelection.pageNumber,
+      activeSelection.rects,
+      label,
+      newCapsuleColor
+    );
+    setActiveSelection(null);
   };
 
   const getStatusColor = (status: string) => {
@@ -396,7 +449,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     const rects: { x: number; y: number; width: number; height: number }[] = [];
     const clientRects = range.getClientRects();
     
-    // Find the page container element
     const pageEl = containerRef.current?.querySelector(`[data-page="${pageNumber}"]`);
     if (!pageEl) return;
     const pageRect = pageEl.getBoundingClientRect();
@@ -412,7 +464,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     }
 
     if (rects.length > 0) {
-      onSelectText(selectedText, pageNumber, rects);
+      handleSelectTextReady(selectedText, pageNumber, rects, range);
     }
   };
 
@@ -425,7 +477,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           onMouseUp={() => handleSampleTextSelection(1)}
         >
           <div className="text-center mb-8 border-b border-slate-200 dark:border-slate-800 pb-6">
-            <h1 className="text-2xl font-extrabold text-slate-850 dark:text-white leading-tight mb-2">
+            <h1 className="text-2xl font-extrabold text-slate-855 dark:text-white leading-tight mb-2">
               Pathological Mechanisms of Alzheimer's Disease: Tau Hyperphosphorylation and Amyloid-Beta Cascades
             </h1>
             <p className="text-xs font-semibold text-slate-405 dark:text-slate-500 uppercase tracking-widest">
@@ -433,13 +485,13 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             </p>
           </div>
 
-          <h3 className="text-lg font-bold text-slate-850 dark:text-slate-200 mt-6 mb-2">1. Abstract & Introduction</h3>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-6 mb-2">1. Abstract & Introduction</h3>
           <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4">
             Alzheimer's Disease (AD) is characterized pathologically by extracellular amyloid-beta deposits and intracellular neurofibrillary tangles. While these pathological marks have been documented for decades, the precise molecular kinetics coupling amyloid cleavages to cellular transport collapse remain under active debate. Understanding the biochemical switches that regulate synapse viability is paramount to developing successful disease-modifying therapies.
           </p>
 
-          <h3 className="text-lg font-bold text-slate-850 dark:text-slate-200 mt-6 mb-2">2. The Role of Tau Hyperphosphorylation</h3>
-          <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4 relative">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-8 mb-2">2. The Role of Tau Hyperphosphorylation</h3>
+          <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4 relative">
             Neurons maintain a complex polar shape supported by an internal skeleton. Under physiological conditions, healthy tau protein binds to tubulin monomers, promoting microtubule polymerization. However, in pathological states, excess kinase activation alters tau folding. Specifically, 
             {" "}
             <span 
@@ -631,6 +683,14 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   };
 
   const hasBookmark = pdfInfo.bookmarks.includes(currentPage);
+  const categories = [
+    { name: 'yellow', bg: 'bg-yellow-400' },
+    { name: 'blue', bg: 'bg-blue-400' },
+    { name: 'green', bg: 'bg-green-400' },
+    { name: 'purple', bg: 'bg-purple-400' },
+    { name: 'red', bg: 'bg-rose-405' },
+    { name: 'orange', bg: 'bg-orange-400' }
+  ];
 
   return (
     <div className="flex flex-col h-full bg-slate-100/40 dark:bg-[#0f1118]/40 border border-slate-200 dark:border-slate-800/80 rounded-2xl overflow-hidden shadow-inner relative">
@@ -676,7 +736,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             <div className="flex items-center gap-1 border-r border-slate-200 dark:border-slate-800 pr-3">
               <button 
                 onClick={() => setScale(prev => Math.max(0.6, prev - 0.1))}
-                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-655 dark:text-slate-400 cursor-pointer"
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-855 text-slate-655 dark:text-slate-400 cursor-pointer"
               >
                 <ZoomOut className="h-3.5 w-3.5" />
               </button>
@@ -685,7 +745,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
               </span>
               <button 
                 onClick={() => setScale(prev => Math.min(2.5, prev + 0.1))}
-                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-655 dark:text-slate-400 cursor-pointer"
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-855 text-slate-655 dark:text-slate-400 cursor-pointer"
               >
                 <ZoomIn className="h-3.5 w-3.5" />
               </button>
@@ -759,7 +819,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                   onSelectCapsule={onSelectCapsule}
                   onMarkerHover={handleMarkerHover}
                   onMarkerLeave={handleMarkerLeave}
-                  onSelectText={onSelectText}
+                  onSelectTextReady={handleSelectTextReady}
                 />
               </div>
             ))}
@@ -771,6 +831,63 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           <BookOpen className="h-3 w-3 text-indigo-400" />
           <span>Select text anywhere to create a Capsule</span>
         </div>
+
+        {/* Floating Annotation Creator Tooltip Dialog */}
+        {activeSelection && (
+          <form 
+            onSubmit={handleConfirmCreateCapsule}
+            className="absolute z-40 w-64 glass-panel p-4 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-3 animate-scale-up"
+            style={{
+              left: `${activeSelection.x}px`,
+              top: `${activeSelection.y - 120}px`
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                Create Capsule
+              </span>
+              <button 
+                type="button"
+                onClick={() => setActiveSelection(null)}
+                className="text-slate-400 hover:text-slate-650 p-0.5 rounded hover:bg-slate-105 dark:hover:bg-slate-800"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+
+            <input
+              type="text"
+              placeholder="Name this concept..."
+              value={newCapsuleLabel}
+              onChange={(e) => setNewCapsuleLabel(e.target.value)}
+              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              autoFocus
+              required
+            />
+
+            <div className="flex items-center justify-between gap-2 mt-1 border-t border-slate-100 dark:border-slate-800 pt-2.5">
+              <div className="flex items-center gap-1">
+                {categories.map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => setNewCapsuleColor(c.name)}
+                    className={`w-3.5 h-3.5 rounded-full cursor-pointer flex items-center justify-center border transition hover:scale-110 ${c.bg} ${
+                      newCapsuleColor === c.name ? 'border-slate-700 dark:border-white scale-115' : 'border-transparent'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <button
+                type="submit"
+                className="px-3 py-1.5 text-[10px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow transition cursor-pointer"
+              >
+                Confirm
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       {/* Hover Quick Preview Card */}
@@ -792,12 +909,12 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             </span>
           </div>
           
-          <h4 className="text-xs font-bold text-slate-850 dark:text-slate-205 mb-1 flex items-center gap-1">
+          <h4 className="text-xs font-bold text-slate-800 dark:text-slate-205 mb-1 flex items-center gap-1">
             <span>{hoveredCapsule.number}.</span>
             <span>{hoveredCapsule.label || 'Untitled'}</span>
           </h4>
           
-          <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+          <p className="text-[10px] text-slate-505 dark:text-slate-400 line-clamp-2 leading-relaxed">
             {hoveredCapsule.notes.replace(/[#*`_-]/g, '').trim()}
           </p>
           
