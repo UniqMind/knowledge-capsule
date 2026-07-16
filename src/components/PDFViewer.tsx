@@ -57,7 +57,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
         const canvas = canvasRef.current!;
         const context = canvas.getContext('2d')!;
 
-        // 1. Calculate device pixel ratio for sharp text on Retina/High-DPI screens (e.g. iPad)
+        // Calculate device pixel ratio for sharp text on Retina/High-DPI screens (e.g. iPad)
         const dpr = window.devicePixelRatio || 1;
         const viewport = page.getViewport({ scale });
         
@@ -178,7 +178,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
     <div 
       ref={containerRef}
       onMouseUp={handleTextSelection}
-      className="relative select-text bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl overflow-hidden self-start" 
+      className="relative select-text bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl overflow-hidden mx-auto" 
       style={{ 
         width: pageSize.width ? `${pageSize.width}px` : '100%', 
         height: pageSize.height ? `${pageSize.height}px` : 'auto',
@@ -280,7 +280,8 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 }) => {
   const [numPages, setNumPages] = useState<number>(pdfInfo.totalPages);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [scale, setScale] = useState<number>(1.1); // Dynamic scale fitting
+  const [scale, setScale] = useState<number>(1.1); 
+  const [isAutoFit, setIsAutoFit] = useState<boolean>(true); // Auto-fit vs manual zoom toggle
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -301,27 +302,22 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const isSample = pdfInfo.id === SAMPLE_PDF_ID;
 
-  // Auto-fit function matching window width/iPad rotation
-  const recalculateScale = async (pdfDocToUse?: any) => {
-    const container = containerRef.current;
-    if (!container || isSample) return;
-
-    const activeDoc = pdfDocToUse || pdfDocument;
-    if (!activeDoc) return;
-
-    // Use container width minus padding margins (48px)
-    const containerWidth = container.clientWidth - 48;
+  // Fit scale helper matching container width
+  const fitScaleToContainer = async (width: number, pdfDoc = pdfDocument) => {
+    if (!pdfDoc) return;
+    const padding = 48; // 24px padding on each side
+    const containerWidth = width - padding;
     if (containerWidth <= 0) return;
 
     try {
-      const page = await activeDoc.getPage(1);
+      const page = await pdfDoc.getPage(1);
       const originalViewport = page.getViewport({ scale: 1.0 });
       const fittedScale = containerWidth / originalViewport.width;
       
-      // Keep fit zoom within standard bounds (0.5x to 2.2x)
-      setScale(Math.max(0.5, Math.min(2.2, fittedScale)));
+      // Fitted zoom bounds
+      setScale(Math.max(0.4, Math.min(2.0, fittedScale)));
     } catch (err) {
-      console.error("Failed to fit scale to width", err);
+      console.error("Failed to fit scale to container width", err);
     }
   };
 
@@ -330,6 +326,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     setPdfDocument(null);
     setPdfData(null);
     setActiveSelection(null);
+    setIsAutoFit(true); // Reset to autofit for new documents
     if (isSample) return;
     
     const loadFile = async () => {
@@ -348,8 +345,10 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             onDocumentLoadSuccess(pdf.numPages);
           }
           
-          // Trigger initial scale adjustment
-          await recalculateScale(pdf);
+          // Initial sizing fit
+          if (containerRef.current) {
+            await fitScaleToContainer(containerRef.current.clientWidth, pdf);
+          }
         }
       } catch (err) {
         console.error("Failed to load PDF file from DB", err);
@@ -360,19 +359,26 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     loadFile();
   }, [pdfInfo.id, isSample]);
 
-  // Recalculate fitted scale on screen resize/iPad rotation
+  // Modern ResizeObserver: fits scale whenever middle pane resizes (sidebar toggles, iPad rotation)
   useEffect(() => {
-    if (isSample || !pdfDocument) return;
+    if (isSample || !pdfDocument || !containerRef.current) return;
 
-    const handleResize = () => {
-      recalculateScale();
-    };
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (!isAutoFit) return; // Maintain manual zoom levels
 
-    window.addEventListener('resize', handleResize);
+      for (let entry of entries) {
+        const { width } = entry.contentRect;
+        if (width > 0) {
+          fitScaleToContainer(width);
+        }
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
     };
-  }, [pdfDocument, isSample]);
+  }, [pdfDocument, isSample, isAutoFit]);
 
   // Page read tracking
   useEffect(() => {
@@ -597,7 +603,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           className="prose dark:prose-invert max-w-none px-12 py-10 select-text"
           onMouseUp={() => handleSampleTextSelection(2)}
         >
-          <h3 className="text-lg font-bold text-slate-855 dark:text-slate-200 mb-2">3. Amyloid-Beta Accumulation & Synaptic Toxicity</h3>
+          <h3 className="text-lg font-bold text-slate-855 dark:text-slate-205 mb-2">3. Amyloid-Beta Accumulation & Synaptic Toxicity</h3>
           <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4">
             The processing of amyloid precursor protein (APP) determines whether toxic peptides accumulate. The amyloidogenic pathway requires initial cutting by beta-secretase (BACE1), followed by the gamma-secretase complex.
           </p>
@@ -760,10 +766,10 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md z-10">
         <div className="flex items-center gap-3">
           <BookOpen className="h-4 w-4 text-indigo-500" />
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1 max-w-[200px]">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1 max-w-[150px] sm:max-w-[200px]">
             {pdfInfo.name.replace(/_/g, ' ')}
           </span>
-          <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-450 font-semibold uppercase">
+          <span className="hidden sm:inline-block text-[10px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-450 font-semibold uppercase">
             Flow Mode
           </span>
         </div>
@@ -794,10 +800,14 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 
           {/* Scale controls */}
           {!isSample && (
-            <div className="flex items-center gap-1 border-r border-slate-200 dark:border-slate-800 pr-3">
+            <div className="flex items-center gap-1.5 border-r border-slate-200 dark:border-slate-800 pr-3">
               <button 
-                onClick={() => setScale(prev => Math.max(0.4, prev - 0.1))}
+                onClick={() => {
+                  setIsAutoFit(false);
+                  setScale(prev => Math.max(0.4, prev - 0.15));
+                }}
                 className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-855 text-slate-655 dark:text-slate-400 cursor-pointer"
+                title="Zoom Out"
               >
                 <ZoomOut className="h-3.5 w-3.5" />
               </button>
@@ -805,11 +815,31 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                 {Math.round(scale * 100)}%
               </span>
               <button 
-                onClick={() => setScale(prev => Math.min(2.5, prev + 0.1))}
+                onClick={() => {
+                  setIsAutoFit(false);
+                  setScale(prev => Math.min(2.5, prev + 0.15));
+                }}
                 className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-855 text-slate-655 dark:text-slate-400 cursor-pointer"
+                title="Zoom In"
               >
                 <ZoomIn className="h-3.5 w-3.5" />
               </button>
+
+              {/* Fit Width toggle shortcut */}
+              {!isAutoFit && (
+                <button
+                  onClick={() => {
+                    setIsAutoFit(true);
+                    if (containerRef.current) {
+                      fitScaleToContainer(containerRef.current.clientWidth);
+                    }
+                  }}
+                  className="px-2 py-0.5 text-[9px] font-bold rounded bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition cursor-pointer"
+                  title="Fit to Width"
+                >
+                  Fit Width
+                </button>
+              )}
             </div>
           )}
 
