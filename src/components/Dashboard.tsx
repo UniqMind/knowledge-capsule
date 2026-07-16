@@ -92,6 +92,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Global paste upload listener
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
+      // 1. Check direct files list in clipboard (standard for copied files from desktop explorer)
+      const files = e.clipboardData?.files;
+      if (files && files.length > 0) {
+        const file = files[0];
+        const isPDF = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        if (isPDF) {
+          processFile(file);
+          return;
+        }
+      }
+
+      // 2. Fallback to items
       const items = e.clipboardData?.items;
       if (!items) return;
 
@@ -110,9 +122,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
     };
 
-    document.addEventListener('paste', handlePaste);
+    window.addEventListener('paste', handlePaste);
     return () => {
-      document.removeEventListener('paste', handlePaste);
+      window.removeEventListener('paste', handlePaste);
     };
   }, [onUploadPDF]);
 

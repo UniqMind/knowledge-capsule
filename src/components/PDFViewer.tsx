@@ -14,7 +14,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 // 1. MODULE FOR RENDERING A SINGLE PAGE CANVAS OF A REAL PDF
 interface PageCanvasProps {
-  pdfData: ArrayBuffer;
+  pdf: any; // PDFDocumentProxy
   pageNumber: number;
   scale: number;
   readingMode: 'clean' | 'study' | 'research' | 'review';
@@ -27,7 +27,7 @@ interface PageCanvasProps {
 }
 
 const PageCanvas: React.FC<PageCanvasProps> = ({
-  pdfData,
+  pdf,
   pageNumber,
   scale,
   readingMode,
@@ -44,14 +44,12 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!pdfData || !canvasRef.current) return;
+    if (!pdf || !canvasRef.current) return;
 
     let renderTask: any = null;
     const renderPage = async () => {
       setLoading(true);
       try {
-        const loadingTask = pdfjs.getDocument({ data: pdfData });
-        const pdf = await loadingTask.promise;
         const page = await pdf.getPage(pageNumber);
         
         const canvas = canvasRef.current!;
@@ -82,8 +80,11 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
           });
           await textLayer.render();
         }
-      } catch (err) {
-        console.error("Error rendering PDF page " + pageNumber, err);
+      } catch (err: any) {
+        // Prevent printing cancellation errors, which are normal during zoom/scale changes
+        if (err.name !== 'RenderingCancelledException') {
+          console.error("Error rendering PDF page " + pageNumber, err);
+        }
       } finally {
         setLoading(false);
       }
@@ -96,7 +97,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
         renderTask.cancel();
       }
     };
-  }, [pdfData, pageNumber, scale]);
+  }, [pdf, pageNumber, scale]);
 
   const handleTextSelection = () => {
     const selection = window.getSelection();
@@ -113,7 +114,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
 
     for (let i = 0; i < clientRects.length; i++) {
       const r = clientRects[i];
-      // Normalize rect coordinates against scaling
+      // Normalize coordinates against the current page scale
       rects.push({
         x: (r.left - containerRect.left) / scale,
         y: (r.top - containerRect.top) / scale,
@@ -223,7 +224,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
                       strokeDashoffset={2 * Math.PI * 7 * (1 - (capsule.progressStatus === 'mastered' ? 1.0 : capsule.progressStatus === 'understood' ? 0.75 : capsule.progressStatus === 'partial' ? 0.5 : capsule.progressStatus === 'learning' ? 0.25 : 0))}
                     />
                   </svg>
-                  <span className="absolute text-[8px] font-bold text-slate-805 dark:text-slate-100">{capsule.number}</span>
+                  <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-100">{capsule.number}</span>
                 </div>
               );
             })()}
@@ -262,6 +263,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.2);
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
+  const [pdfDocument, setPdfDocument] = useState<any>(null); // Shared loaded PDF proxy
   const [loading, setLoading] = useState<boolean>(false);
   const [hoveredCapsule, setHoveredCapsule] = useState<KnowledgeCapsuleItem | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -269,8 +271,10 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const isSample = pdfInfo.id === SAMPLE_PDF_ID;
 
-  // Load PDF file from IndexedDB
+  // Load PDF file from IndexedDB & Parse Document ONCE
   useEffect(() => {
+    setPdfDocument(null);
+    setPdfData(null);
     if (isSample) return;
     
     const loadFile = async () => {
@@ -282,6 +286,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         if (data) {
           const loadingTask = pdfjs.getDocument({ data });
           const pdf = await loadingTask.promise;
+          setPdfDocument(pdf); // Store the shared document proxy
           setNumPages(pdf.numPages);
           if (onDocumentLoadSuccess) {
             onDocumentLoadSuccess(pdf.numPages);
@@ -428,12 +433,12 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             </p>
           </div>
 
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-6 mb-2">1. Abstract & Introduction</h3>
+          <h3 className="text-lg font-bold text-slate-850 dark:text-slate-200 mt-6 mb-2">1. Abstract & Introduction</h3>
           <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4">
             Alzheimer's Disease (AD) is characterized pathologically by extracellular amyloid-beta deposits and intracellular neurofibrillary tangles. While these pathological marks have been documented for decades, the precise molecular kinetics coupling amyloid cleavages to cellular transport collapse remain under active debate. Understanding the biochemical switches that regulate synapse viability is paramount to developing successful disease-modifying therapies.
           </p>
 
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-8 mb-2">2. The Role of Tau Hyperphosphorylation</h3>
+          <h3 className="text-lg font-bold text-slate-850 dark:text-slate-200 mt-6 mb-2">2. The Role of Tau Hyperphosphorylation</h3>
           <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4 relative">
             Neurons maintain a complex polar shape supported by an internal skeleton. Under physiological conditions, healthy tau protein binds to tubulin monomers, promoting microtubule polymerization. However, in pathological states, excess kinase activation alters tau folding. Specifically, 
             {" "}
@@ -480,7 +485,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           onMouseUp={() => handleSampleTextSelection(2)}
         >
           <h3 className="text-lg font-bold text-slate-855 dark:text-slate-200 mb-2">3. Amyloid-Beta Accumulation & Synaptic Toxicity</h3>
-          <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4">
+          <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4">
             The processing of amyloid precursor protein (APP) determines whether toxic peptides accumulate. The amyloidogenic pathway requires initial cutting by beta-secretase (BACE1), followed by the gamma-secretase complex.
           </p>
           
@@ -650,7 +655,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             <button 
               disabled={currentPage <= 1}
               onClick={() => scrollToPage(currentPage - 1)}
-              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-650 dark:text-slate-400 cursor-pointer"
+              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-655 dark:text-slate-400 cursor-pointer"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -660,7 +665,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             <button 
               disabled={currentPage >= numPages}
               onClick={() => scrollToPage(currentPage + 1)}
-              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-650 dark:text-slate-400 cursor-pointer"
+              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-655 dark:text-slate-400 cursor-pointer"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -671,7 +676,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             <div className="flex items-center gap-1 border-r border-slate-200 dark:border-slate-800 pr-3">
               <button 
                 onClick={() => setScale(prev => Math.max(0.6, prev - 0.1))}
-                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-650 dark:text-slate-400 cursor-pointer"
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-655 dark:text-slate-400 cursor-pointer"
               >
                 <ZoomOut className="h-3.5 w-3.5" />
               </button>
@@ -680,7 +685,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
               </span>
               <button 
                 onClick={() => setScale(prev => Math.min(2.5, prev + 0.1))}
-                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-650 dark:text-slate-400 cursor-pointer"
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-655 dark:text-slate-400 cursor-pointer"
               >
                 <ZoomIn className="h-3.5 w-3.5" />
               </button>
@@ -709,7 +714,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         className="flex-1 overflow-y-auto flex flex-col items-center gap-8 p-6 bg-slate-50/50 dark:bg-slate-950/20 scroll-smooth"
       >
         {/* Loading Indicator */}
-        {loading && !pdfData && !isSample && (
+        {loading && !pdfDocument && !isSample && (
           <div className="flex-1 flex flex-col items-center justify-center gap-2">
             <RefreshCw className="h-6 w-6 text-indigo-500 animate-spin" />
             <span className="text-xs text-slate-500 font-semibold">Reading PDF structures...</span>
@@ -724,7 +729,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                 key={p} 
                 data-page={p}
                 className={`page-container bg-white dark:bg-slate-900 border shadow-sm rounded-xl overflow-hidden w-full transition-all duration-300 ${
-                  currentPage === p ? 'border-slate-300 dark:border-slate-750 ring-1 ring-slate-200 dark:ring-slate-800' : 'border-slate-200 dark:border-slate-850 opacity-90'
+                  currentPage === p ? 'border-slate-300 dark:border-slate-750 ring-1 ring-slate-200 dark:ring-slate-800' : 'border-slate-200 dark:border-slate-855 opacity-90'
                 }`}
               >
                 {renderSamplePage(p)}
@@ -734,7 +739,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         )}
 
         {/* 2. REAL PDF FLOW RENDERER */}
-        {!isSample && pdfData && (
+        {!isSample && pdfDocument && (
           <div className="flex flex-col gap-8 w-full max-w-2xl">
             {Array.from({ length: numPages }, (_, i) => i + 1).map((p) => (
               <div 
@@ -745,7 +750,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                 }`}
               >
                 <PageCanvas
-                  pdfData={pdfData}
+                  pdf={pdfDocument}
                   pageNumber={p}
                   scale={scale}
                   readingMode={readingMode}
@@ -787,7 +792,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             </span>
           </div>
           
-          <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-1">
+          <h4 className="text-xs font-bold text-slate-850 dark:text-slate-205 mb-1 flex items-center gap-1">
             <span>{hoveredCapsule.number}.</span>
             <span>{hoveredCapsule.label || 'Untitled'}</span>
           </h4>
