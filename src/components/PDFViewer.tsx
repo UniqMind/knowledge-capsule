@@ -175,21 +175,39 @@ const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / scale;
-    const y = (e.clientY - rect.top) / scale;
+    const rawX = (e.clientX - rect.left) / scale;
+    const rawY = (e.clientY - rect.top) / scale;
+
+    let x = rawX;
+    let y = rawY;
 
     const points = currentPointsRef.current;
     if (points.length === 0) return;
     const lastPoint = points[points.length - 1];
 
+    if (activeTool === 'highlighter') {
+      const startPoint = points[0];
+      const dx = Math.abs(rawX - startPoint.x);
+      const dy = Math.abs(rawY - startPoint.y);
+      // Lock to horizontal line if movement is primarily horizontal within a row range
+      if (dx > dy && dy < 18) {
+        y = startPoint.y;
+      }
+    }
+
     if (Math.hypot(x - lastPoint.x, y - lastPoint.y) < 1) return;
 
     points.push({ x, y });
 
-    const context = canvas.getContext('2d');
-    if (context && activeTool !== 'eraser') {
-      context.lineTo(x * scale, y * scale);
-      context.stroke();
+    if (activeTool === 'eraser') {
+      // Erase in real-time as the pointer sweeps
+      eraseStrokes(points);
+    } else {
+      const context = canvas.getContext('2d');
+      if (context) {
+        context.lineTo(x * scale, y * scale);
+        context.stroke();
+      }
     }
   };
 
@@ -202,40 +220,63 @@ const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
       canvas.releasePointerCapture(e.pointerId);
     }
 
-    if (currentPointsRef.current.length >= 2) {
-      if (activeTool === 'eraser') {
-        eraseStrokes(currentPointsRef.current);
-      } else {
-        const newStroke: DrawingStroke = {
-          id: `stroke-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-          tool: activeTool === 'highlighter' ? 'highlighter' : 'pen',
-          color: activeColor,
-          width: activeWidth,
-          points: currentPointsRef.current
-        };
-        const updated = [...strokesRef.current, newStroke];
-        strokesRef.current = updated;
-        savePageDrawings(pdfId, pageNumber, updated);
-        drawStrokes();
-      }
+    if (currentPointsRef.current.length >= 2 && activeTool !== 'eraser') {
+      const newStroke: DrawingStroke = {
+        id: `stroke-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        tool: activeTool === 'highlighter' ? 'highlighter' : 'pen',
+        color: activeColor,
+        width: activeWidth,
+        points: currentPointsRef.current
+      };
+      const updated = [...strokesRef.current, newStroke];
+      strokesRef.current = updated;
+      savePageDrawings(pdfId, pageNumber, updated);
+      drawStrokes();
     }
     currentPointsRef.current = [];
   };
 
   const eraseStrokes = (eraserPoints: DrawingPoint[]) => {
     const threshold = 18; // Eraser radius range
-    const updated = strokesRef.current.filter((stroke) => {
-      // Retain strokes that DO NOT intersect with the eraser's sweep path
-      return !stroke.points.some((p1) => 
-        eraserPoints.some((p2) => 
-          Math.hypot(p1.x - p2.x, p1.y - p2.y) < threshold
-        )
-      );
+    const newStrokes: DrawingStroke[] = [];
+    let anyErased = false;
+
+    strokesRef.current.forEach((stroke) => {
+      let currentSegmentPoints: DrawingPoint[] = [];
+
+      stroke.points.forEach((p) => {
+        const isPointErased = eraserPoints.some((ep) => 
+          Math.hypot(p.x - ep.x, p.y - ep.y) < threshold
+        );
+
+        if (isPointErased) {
+          anyErased = true;
+          // If we had accumulated points, save this segment as a new sub-stroke
+          if (currentSegmentPoints.length >= 2) {
+            newStrokes.push({
+              ...stroke,
+              id: `${stroke.id}-split-${newStrokes.length}-${Math.random().toString(36).substr(2, 4)}`,
+              points: currentSegmentPoints
+            });
+          }
+          currentSegmentPoints = [];
+        } else {
+          currentSegmentPoints.push(p);
+        }
+      });
+
+      // Save the final remaining segment
+      if (currentSegmentPoints.length >= 2) {
+        newStrokes.push({
+          ...stroke,
+          points: currentSegmentPoints
+        });
+      }
     });
 
-    if (updated.length !== strokesRef.current.length) {
-      strokesRef.current = updated;
-      savePageDrawings(pdfId, pageNumber, updated);
+    if (anyErased) {
+      strokesRef.current = newStrokes;
+      savePageDrawings(pdfId, pageNumber, newStrokes);
       drawStrokes();
     }
   };
