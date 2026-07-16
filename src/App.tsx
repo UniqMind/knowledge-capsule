@@ -378,7 +378,7 @@ export default function App() {
           {activePdfId && (
             <>
               {/* Reading Modes Selector */}
-              <div className="flex items-center bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/60">
+              <div className="hidden md:flex items-center bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/60">
                 {(['clean', 'study', 'research', 'review'] as const).map((mode) => (
                   <button
                     key={mode}
