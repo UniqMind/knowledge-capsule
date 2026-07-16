@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight, 
-  BookOpen, CheckCircle, RefreshCw, Bookmark, X
+  BookOpen, CheckCircle, RefreshCw, Bookmark, X,
+  PenTool, Eraser, Highlighter, Edit3
 } from 'lucide-react';
 import * as pdfjs from 'pdfjs-dist';
-import { getPDFFile, KnowledgeCapsuleItem, PDFDocumentInfo } from '../utils/storage';
+import { 
+  getPDFFile, KnowledgeCapsuleItem, PDFDocumentInfo,
+  DrawingStroke, DrawingPoint, getPageDrawings, savePageDrawings 
+} from '../utils/storage';
 import { SAMPLE_PDF_ID } from '../utils/sampleData';
 
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
@@ -12,7 +16,227 @@ import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 // Setup worker
 pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
-// 1. MODULE FOR RENDERING A SINGLE PAGE CANVAS OF A REAL PDF (WITH HIGH-DPI & RETINA SHARPNESS)
+// 1. MODULE FOR PERSISTING AND RENDERING VECTOR DRAWING STROKES (Stylus & Finger Markup)
+interface PageDrawingCanvasProps {
+  pdfId: string;
+  pageNumber: number;
+  scale: number;
+  pencilMode: boolean;
+  activeTool: 'pen' | 'highlighter' | 'eraser';
+  activeColor: string;
+  activeWidth: number;
+  dimensions?: { width: number; height: number };
+}
+
+const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
+  pdfId,
+  pageNumber,
+  scale,
+  pencilMode,
+  activeTool,
+  activeColor,
+  activeWidth,
+  dimensions
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [pageSize, setPageSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const strokesRef = useRef<DrawingStroke[]>([]);
+  const isDrawingRef = useRef(false);
+  const currentPointsRef = useRef<DrawingPoint[]>([]);
+
+  // Load strokes on mount or page change
+  useEffect(() => {
+    strokesRef.current = getPageDrawings(pdfId, pageNumber);
+    drawStrokes();
+  }, [pdfId, pageNumber]);
+
+  // Adjust dimensions dynamically
+  useEffect(() => {
+    if (dimensions) {
+      setPageSize(dimensions);
+    } else if (containerRef.current) {
+      const parent = containerRef.current.parentElement;
+      if (parent) {
+        // Measure parent element (used for mock sample HTML layout fit)
+        setPageSize({ width: parent.clientWidth, height: parent.clientHeight });
+      }
+    }
+  }, [dimensions, scale]);
+
+  // Set backing canvas size scaled by DPR for Retina crispness
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !pageSize.width || !pageSize.height) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = pageSize.width * dpr;
+    canvas.height = pageSize.height * dpr;
+    canvas.style.width = `${pageSize.width}px`;
+    canvas.style.height = `${pageSize.height}px`;
+
+    drawStrokes();
+  }, [pageSize, scale]);
+
+  // Render all vector strokes onto the drawing canvas
+  const drawStrokes = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const dpr = window.devicePixelRatio || 1;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    strokesRef.current.forEach((stroke) => {
+      if (stroke.points.length < 2) return;
+
+      context.beginPath();
+      context.strokeStyle = stroke.color;
+      context.lineWidth = stroke.width;
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+
+      if (stroke.tool === 'highlighter') {
+        context.globalAlpha = 0.45;
+        context.globalCompositeOperation = 'multiply';
+      } else {
+        context.globalAlpha = 1.0;
+        context.globalCompositeOperation = 'source-over';
+      }
+
+      const points = stroke.points;
+      context.moveTo(points[0].x * scale, points[0].y * scale);
+      for (let i = 1; i < points.length; i++) {
+        context.lineTo(points[i].x * scale, points[i].y * scale);
+      }
+      context.stroke();
+    });
+
+    // Reset properties to default
+    context.globalAlpha = 1.0;
+    context.globalCompositeOperation = 'source-over';
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!pencilMode) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    canvas.setPointerCapture(e.pointerId);
+    isDrawingRef.current = true;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / scale;
+    const y = (e.clientY - rect.top) / scale;
+
+    currentPointsRef.current = [{ x, y }];
+
+    const context = canvas.getContext('2d');
+    if (context && activeTool !== 'eraser') {
+      const dpr = window.devicePixelRatio || 1;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      context.beginPath();
+      context.strokeStyle = activeColor;
+      context.lineWidth = activeWidth;
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+      context.globalAlpha = activeTool === 'highlighter' ? 0.45 : 1.0;
+      context.globalCompositeOperation = activeTool === 'highlighter' ? 'multiply' : 'source-over';
+      context.moveTo(x * scale, y * scale);
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current || !pencilMode) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / scale;
+    const y = (e.clientY - rect.top) / scale;
+
+    const points = currentPointsRef.current;
+    if (points.length === 0) return;
+    const lastPoint = points[points.length - 1];
+
+    if (Math.hypot(x - lastPoint.x, y - lastPoint.y) < 1) return;
+
+    points.push({ x, y });
+
+    const context = canvas.getContext('2d');
+    if (context && activeTool !== 'eraser') {
+      context.lineTo(x * scale, y * scale);
+      context.stroke();
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current) return;
+    isDrawingRef.current = false;
+    
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.releasePointerCapture(e.pointerId);
+    }
+
+    if (currentPointsRef.current.length >= 2) {
+      if (activeTool === 'eraser') {
+        eraseStrokes(currentPointsRef.current);
+      } else {
+        const newStroke: DrawingStroke = {
+          id: `stroke-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          tool: activeTool === 'highlighter' ? 'highlighter' : 'pen',
+          color: activeColor,
+          width: activeWidth,
+          points: currentPointsRef.current
+        };
+        const updated = [...strokesRef.current, newStroke];
+        strokesRef.current = updated;
+        savePageDrawings(pdfId, pageNumber, updated);
+        drawStrokes();
+      }
+    }
+    currentPointsRef.current = [];
+  };
+
+  const eraseStrokes = (eraserPoints: DrawingPoint[]) => {
+    const threshold = 18; // Eraser radius range
+    const updated = strokesRef.current.filter((stroke) => {
+      // Retain strokes that DO NOT intersect with the eraser's sweep path
+      return !stroke.points.some((p1) => 
+        eraserPoints.some((p2) => 
+          Math.hypot(p1.x - p2.x, p1.y - p2.y) < threshold
+        )
+      );
+    });
+
+    if (updated.length !== strokesRef.current.length) {
+      strokesRef.current = updated;
+      savePageDrawings(pdfId, pageNumber, updated);
+      drawStrokes();
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="absolute inset-0 pointer-events-none z-15">
+      <canvas 
+        ref={canvasRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        className={`block select-none ${pencilMode ? 'pointer-events-auto cursor-crosshair touch-none' : 'pointer-events-none'}`}
+        style={{
+          width: pageSize.width ? `${pageSize.width}px` : '100%',
+          height: pageSize.height ? `${pageSize.height}px` : '100%',
+        }}
+      />
+    </div>
+  );
+};
+
+// 2. MODULE FOR RENDERING A SINGLE PAGE CANVAS OF A REAL PDF
 interface PageCanvasProps {
   pdf: any; // PDFDocumentProxy
   pageNumber: number;
@@ -24,6 +248,13 @@ interface PageCanvasProps {
   onMarkerHover: (e: React.MouseEvent, capsule: KnowledgeCapsuleItem) => void;
   onMarkerLeave: () => void;
   onSelectTextReady: (text: string, pageNumber: number, rects: { x: number; y: number; width: number; height: number }[], range: Range) => void;
+  
+  // Drawing Stylus mode configs
+  pdfId: string;
+  pencilMode: boolean;
+  activeTool: 'pen' | 'highlighter' | 'eraser';
+  activeColor: string;
+  activeWidth: number;
 }
 
 const PageCanvas: React.FC<PageCanvasProps> = ({
@@ -36,7 +267,12 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
   onSelectCapsule,
   onMarkerHover,
   onMarkerLeave,
-  onSelectTextReady
+  onSelectTextReady,
+  pdfId,
+  pencilMode,
+  activeTool,
+  activeColor,
+  activeWidth
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
@@ -57,22 +293,17 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
         const canvas = canvasRef.current!;
         const context = canvas.getContext('2d')!;
 
-        // Calculate device pixel ratio for sharp text on Retina/High-DPI screens (e.g. iPad)
         const dpr = window.devicePixelRatio || 1;
         const viewport = page.getViewport({ scale });
         
-        // Save logical CSS dimensions
         setPageSize({ width: viewport.width, height: viewport.height });
 
-        // Set backing canvas store dimensions (scaled up by DPR)
         canvas.width = viewport.width * dpr;
         canvas.height = viewport.height * dpr;
         
-        // Lock CSS layout dimensions to logical pixels
         canvas.style.width = `${viewport.width}px`;
         canvas.style.height = `${viewport.height}px`;
 
-        // Scale context drawing transform to match DPR
         context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         const renderContext = {
@@ -83,7 +314,6 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
         renderTask = page.render(renderContext);
         await renderTask.promise;
 
-        // Render text overlay selection layer aligned to CSS dimensions
         if (textLayerRef.current) {
           textLayerRef.current.innerHTML = '';
           textLayerRef.current.style.width = `${viewport.width}px`;
@@ -117,7 +347,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
 
   const handleTextSelection = () => {
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
+    if (!selection || selection.isCollapsed || !selection.toString().trim() || pencilMode) return;
 
     const range = selection.getRangeAt(0);
     const selectedText = selection.toString().trim();
@@ -250,11 +480,23 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
           </div>
         );
       })}
+
+      {/* Persistence Stylus Drawing Layer */}
+      <PageDrawingCanvas
+        pdfId={pdfId}
+        pageNumber={pageNumber}
+        scale={scale}
+        pencilMode={pencilMode}
+        activeTool={activeTool}
+        activeColor={activeColor}
+        activeWidth={activeWidth}
+        dimensions={pageSize.width && pageSize.height ? pageSize : undefined}
+      />
     </div>
   );
 };
 
-// 2. MAIN FLOW READER CONTAINER (WITH CONTAINER-FIT AUTO SCALE)
+// 3. MAIN FLOW READER CONTAINER (WITH CONTAINER-FIT & MARKUP TOOLS)
 interface PDFViewerProps {
   pdfInfo: PDFDocumentInfo;
   capsules: KnowledgeCapsuleItem[];
@@ -281,12 +523,18 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const [numPages, setNumPages] = useState<number>(pdfInfo.totalPages);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.1); 
-  const [isAutoFit, setIsAutoFit] = useState<boolean>(true); // Auto-fit vs manual zoom toggle
+  const [isAutoFit, setIsAutoFit] = useState<boolean>(true);
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [hoveredCapsule, setHoveredCapsule] = useState<KnowledgeCapsuleItem | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Floating markup settings
+  const [pencilMode, setPencilMode] = useState<boolean>(false);
+  const [drawingTool, setDrawingTool] = useState<'pen' | 'highlighter' | 'eraser'>('pen');
+  const [drawingColor, setDrawingColor] = useState<string>('#6366f1'); // default: Indigo
+  const [drawingWidth, setDrawingWidth] = useState<number>(3.5);
 
   // Floating Creator Dialog State
   const [activeSelection, setActiveSelection] = useState<{
@@ -302,10 +550,19 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const isSample = pdfInfo.id === SAMPLE_PDF_ID;
 
+  // Sync stroke width to tool changes
+  useEffect(() => {
+    if (drawingTool === 'pen') {
+      setDrawingWidth(3.5);
+    } else if (drawingTool === 'highlighter') {
+      setDrawingWidth(18);
+    }
+  }, [drawingTool]);
+
   // Fit scale helper matching container width
   const fitScaleToContainer = async (width: number, pdfDoc = pdfDocument) => {
     if (!pdfDoc) return;
-    const padding = 48; // 24px padding on each side
+    const padding = 48;
     const containerWidth = width - padding;
     if (containerWidth <= 0) return;
 
@@ -313,11 +570,9 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       const page = await pdfDoc.getPage(1);
       const originalViewport = page.getViewport({ scale: 1.0 });
       const fittedScale = containerWidth / originalViewport.width;
-      
-      // Fitted zoom bounds
       setScale(Math.max(0.4, Math.min(2.0, fittedScale)));
     } catch (err) {
-      console.error("Failed to fit scale to container width", err);
+      console.error("Failed to fit scale", err);
     }
   };
 
@@ -326,7 +581,8 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     setPdfDocument(null);
     setPdfData(null);
     setActiveSelection(null);
-    setIsAutoFit(true); // Reset to autofit for new documents
+    setIsAutoFit(true);
+    setPencilMode(false);
     if (isSample) return;
     
     const loadFile = async () => {
@@ -345,13 +601,12 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             onDocumentLoadSuccess(pdf.numPages);
           }
           
-          // Initial sizing fit
           if (containerRef.current) {
             await fitScaleToContainer(containerRef.current.clientWidth, pdf);
           }
         }
       } catch (err) {
-        console.error("Failed to load PDF file from DB", err);
+        console.error("Failed to load PDF file", err);
       } finally {
         setLoading(false);
       }
@@ -359,12 +614,12 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     loadFile();
   }, [pdfInfo.id, isSample]);
 
-  // Modern ResizeObserver: fits scale whenever middle pane resizes (sidebar toggles, iPad rotation)
+  // ResizeObserver: fits scale on toggles or screen rotations
   useEffect(() => {
     if (isSample || !pdfDocument || !containerRef.current) return;
 
     const resizeObserver = new ResizeObserver((entries) => {
-      if (!isAutoFit) return; // Maintain manual zoom levels
+      if (!isAutoFit) return;
 
       for (let entry of entries) {
         const { width } = entry.contentRect;
@@ -385,7 +640,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     onPageRead(currentPage);
   }, [currentPage]);
 
-  // Detect which page is currently in view during scroll
+  // Detect current page on scroll
   const handleScroll = () => {
     const container = containerRef.current;
     if (!container) return;
@@ -415,7 +670,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     }
   };
 
-  // Scroll to page smoothly
   const scrollToPage = (pageNumber: number) => {
     const container = containerRef.current;
     if (!container) return;
@@ -427,13 +681,13 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     }
   };
 
-  // Handles text selection callback from page canvas
   const handleSelectTextReady = (
     text: string, 
     pageNumber: number, 
     rects: { x: number; y: number; width: number; height: number }[],
     range: Range
   ) => {
+    if (pencilMode) return; // Disable text annotations while stylus is writing
     const container = containerRef.current;
     if (!container) return;
 
@@ -507,6 +761,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 
   // Selection handler for sample HTML view
   const handleSampleTextSelection = (pageNumber: number) => {
+    if (pencilMode) return;
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
 
@@ -552,12 +807,12 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             </p>
           </div>
 
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-6 mb-2">1. Abstract & Introduction</h3>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-205 mt-6 mb-2">1. Abstract & Introduction</h3>
           <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4">
             Alzheimer's Disease (AD) is characterized pathologically by extracellular amyloid-beta deposits and intracellular neurofibrillary tangles. While these pathological marks have been documented for decades, the precise molecular kinetics coupling amyloid cleavages to cellular transport collapse remain under active debate. Understanding the biochemical switches that regulate synapse viability is paramount to developing successful disease-modifying therapies.
           </p>
 
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mt-8 mb-2">2. The Role of Tau Hyperphosphorylation</h3>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-205 mt-8 mb-2">2. The Role of Tau Hyperphosphorylation</h3>
           <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4 relative">
             Neurons maintain a complex polar shape supported by an internal skeleton. Under physiological conditions, healthy tau protein binds to tubulin monomers, promoting microtubule polymerization. However, in pathological states, excess kinase activation alters tau folding. Specifically, 
             {" "}
@@ -737,7 +992,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                     strokeDashoffset={2 * Math.PI * 7 * (1 - 0.1)}
                   />
                 </svg>
-                <span className="absolute text-[8px] font-bold text-slate-805 dark:text-slate-100">④</span>
+                <span className="absolute text-[8px] font-bold text-slate-855 dark:text-slate-100">④</span>
               </span>
             )}
             {" "}
@@ -759,11 +1014,27 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     { name: 'orange', bg: 'bg-orange-400' }
   ];
 
+  // Colors lists
+  const penColors = [
+    { name: 'indigo', hex: '#6366f1' },
+    { name: 'dark', hex: '#0f172a' },
+    { name: 'blue', hex: '#2563eb' },
+    { name: 'red', hex: '#dc2626' },
+    { name: 'green', hex: '#16a34a' }
+  ];
+
+  const highlighterColors = [
+    { name: 'yellow', hex: '#eab308' },
+    { name: 'green', hex: '#22c55e' },
+    { name: 'pink', hex: '#ec4899' },
+    { name: 'blue', hex: '#3b82f6' }
+  ];
+
   return (
-    <div className="flex flex-col h-full bg-slate-100/40 dark:bg-[#0f1118]/40 border border-slate-200 dark:border-slate-800/80 rounded-2xl overflow-hidden shadow-inner relative">
+    <div className="flex flex-col h-full bg-slate-100/40 dark:bg-[#0f1118]/40 border border-slate-200 dark:border-slate-800/80 rounded-2xl overflow-hidden shadow-inner relative select-none">
       
       {/* Top Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md z-10">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md z-20">
         <div className="flex items-center gap-3">
           <BookOpen className="h-4 w-4 text-indigo-500" />
           <span className="text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1 max-w-[150px] sm:max-w-[200px]">
@@ -774,25 +1045,38 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           </span>
         </div>
 
-        {/* Navigation & Zoom controls */}
-        <div className="flex items-center gap-3">
+        {/* Navigation, Zoom & Drawing toggles */}
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          
+          {/* Stylus Pencil Drawing mode trigger */}
+          <button
+            onClick={() => setPencilMode(!pencilMode)}
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              pencilMode 
+                ? 'bg-indigo-550 text-white shadow-md' 
+                : 'text-slate-400 hover:text-slate-650 hover:bg-slate-50 dark:hover:bg-slate-850'
+            }`}
+            title={pencilMode ? "Disable Stylus Markup" : "Enable Stylus Markup / Pen mode"}
+          >
+            <Edit3 className="h-4 w-4" />
+          </button>
           
           {/* Page scrolling selector */}
-          <div className="flex items-center gap-1.5 border-r border-slate-200 dark:border-slate-800 pr-3">
+          <div className="flex items-center gap-1 border-r border-slate-200 dark:border-slate-800 pr-2 sm:pr-3">
             <button 
               disabled={currentPage <= 1}
               onClick={() => scrollToPage(currentPage - 1)}
-              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-655 dark:text-slate-400 cursor-pointer"
+              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-855 disabled:opacity-30 disabled:hover:bg-transparent text-slate-655 dark:text-slate-400 cursor-pointer"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <span className="text-xs font-semibold text-slate-550 w-12 text-center select-none">
+            <span className="text-xs font-semibold text-slate-550 w-11 text-center select-none">
               {currentPage} / {numPages}
             </span>
             <button 
               disabled={currentPage >= numPages}
               onClick={() => scrollToPage(currentPage + 1)}
-              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent text-slate-655 dark:text-slate-400 cursor-pointer"
+              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-855 disabled:opacity-30 disabled:hover:bg-transparent text-slate-655 dark:text-slate-400 cursor-pointer"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -800,7 +1084,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 
           {/* Scale controls */}
           {!isSample && (
-            <div className="flex items-center gap-1.5 border-r border-slate-200 dark:border-slate-800 pr-3">
+            <div className="flex items-center gap-1 border-r border-slate-200 dark:border-slate-800 pr-2 sm:pr-3">
               <button 
                 onClick={() => {
                   setIsAutoFit(false);
@@ -834,7 +1118,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                       fitScaleToContainer(containerRef.current.clientWidth);
                     }
                   }}
-                  className="px-2 py-0.5 text-[9px] font-bold rounded bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition cursor-pointer"
+                  className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition cursor-pointer"
                   title="Fit to Width"
                 >
                   Fit Width
@@ -879,11 +1163,21 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
               <div 
                 key={p} 
                 data-page={p}
-                className={`page-container bg-white dark:bg-slate-900 border shadow-sm rounded-xl overflow-hidden w-full transition-all duration-300 ${
-                  currentPage === p ? 'border-slate-300 dark:border-slate-750 ring-1 ring-slate-200 dark:ring-slate-800' : 'border-slate-200 dark:border-slate-855 opacity-90'
+                className={`page-container bg-white dark:bg-slate-900 border shadow-sm rounded-xl overflow-hidden w-full relative transition-all duration-300 ${
+                  currentPage === p ? 'border-slate-300 dark:border-slate-750' : 'border-slate-200 dark:border-slate-855'
                 }`}
               >
                 {renderSamplePage(p)}
+                {/* stylus drawing layer for mock pages */}
+                <PageDrawingCanvas
+                  pdfId={pdfInfo.id}
+                  pageNumber={p}
+                  scale={1.0}
+                  pencilMode={pencilMode}
+                  activeTool={drawingTool}
+                  activeColor={drawingColor}
+                  activeWidth={drawingWidth}
+                />
               </div>
             ))}
           </div>
@@ -911,6 +1205,13 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                   onMarkerHover={handleMarkerHover}
                   onMarkerLeave={handleMarkerLeave}
                   onSelectTextReady={handleSelectTextReady}
+                  
+                  // Stylus parameters
+                  pdfId={pdfInfo.id}
+                  pencilMode={pencilMode}
+                  activeTool={drawingTool}
+                  activeColor={drawingColor}
+                  activeWidth={drawingWidth}
                 />
               </div>
             ))}
@@ -920,7 +1221,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         {/* Text selection indicator tooltip helper */}
         <div className="fixed bottom-8 right-8 bg-slate-900/90 text-white text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-md pointer-events-none select-none z-10 opacity-70">
           <BookOpen className="h-3 w-3 text-indigo-400" />
-          <span>Select text anywhere to create a Capsule</span>
+          <span>{pencilMode ? "Pencil Mode Active - Draw on page" : "Select text anywhere to create a Capsule"}</span>
         </div>
 
         {/* Floating Annotation Creator Tooltip Dialog */}
@@ -934,7 +1235,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             }}
           >
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-505 uppercase tracking-widest">
                 Create Capsule
               </span>
               <button 
@@ -981,6 +1282,104 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         )}
       </div>
 
+      {/* FLOATING MARKUP PALETTE (Apple-style pencil toolbar overlay at bottom) */}
+      {pencilMode && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 glass-panel px-5 py-3 rounded-2xl shadow-2xl border border-slate-250 dark:border-slate-800 flex items-center gap-4 animate-scale-up touch-none">
+          
+          {/* 1. Tools Selectors */}
+          <div className="flex items-center gap-1.5 border-r border-slate-200 dark:border-slate-800 pr-3.5">
+            <button
+              onClick={() => setDrawingTool('pen')}
+              className={`p-2 rounded-xl transition-all cursor-pointer ${
+                drawingTool === 'pen'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+              title="Pen tool"
+            >
+              <PenTool className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setDrawingTool('highlighter')}
+              className={`p-2 rounded-xl transition-all cursor-pointer ${
+                drawingTool === 'highlighter'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+              title="Highlight drawing marker"
+            >
+              <Highlighter className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setDrawingTool('eraser')}
+              className={`p-2 rounded-xl transition-all cursor-pointer ${
+                drawingTool === 'eraser'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+              title="Object Eraser"
+            >
+              <Eraser className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* 2. Colors List Picker */}
+          {drawingTool !== 'eraser' && (
+            <div className="flex items-center gap-2 border-r border-slate-200 dark:border-slate-800 pr-3.5">
+              {drawingTool === 'pen' ? (
+                penColors.map((color) => (
+                  <button
+                    key={color.name}
+                    onClick={() => setDrawingColor(color.hex)}
+                    className={`w-5 h-5 rounded-full cursor-pointer border transition-all hover:scale-115 ${
+                      drawingColor === color.hex ? 'ring-2 ring-indigo-500 scale-110' : 'border-transparent'
+                    }`}
+                    style={{ backgroundColor: color.hex }}
+                  />
+                ))
+              ) : (
+                highlighterColors.map((color) => (
+                  <button
+                    key={color.name}
+                    onClick={() => setDrawingColor(color.hex)}
+                    className={`w-5 h-5 rounded-full cursor-pointer border transition-all hover:scale-115 ${
+                      drawingColor === color.hex ? 'ring-2 ring-indigo-500 scale-110' : 'border-transparent'
+                    }`}
+                    style={{ backgroundColor: color.hex }}
+                  />
+                ))
+              )}
+            </div>
+          )}
+
+          {/* 3. Width adjuster slider */}
+          {drawingTool !== 'eraser' && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-slate-400 font-bold">Width</span>
+              <input
+                type="range"
+                min={drawingTool === 'pen' ? 1.0 : 8}
+                max={drawingTool === 'pen' ? 8.0 : 35}
+                step={0.5}
+                value={drawingWidth}
+                onChange={(e) => setDrawingWidth(parseFloat(e.target.value))}
+                className="w-16 h-1 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-650"
+              />
+              <span className="text-[10px] text-slate-500 font-bold w-6">{drawingWidth}</span>
+            </div>
+          )}
+
+          {/* 4. Reset/Done trigger */}
+          <button
+            onClick={() => setPencilMode(false)}
+            className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-650 cursor-pointer ml-1"
+            title="Close Markup toolbar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Hover Quick Preview Card */}
       {hoveredCapsule && (
         <div 
@@ -1012,7 +1411,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           {hoveredCapsule.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-2.5">
               {hoveredCapsule.tags.slice(0, 3).map((tag, i) => (
-                <span key={i} className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 px-1.5 py-0.5 rounded">
+                <span key={i} className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-505 px-1.5 py-0.5 rounded">
                   #{tag}
                 </span>
               ))}

@@ -191,3 +191,46 @@ export const storage = {
     localStorage.setItem(`${KEY_PREFIX}settings`, JSON.stringify(settings));
   }
 };
+
+export interface DrawingPoint {
+  x: number;
+  y: number;
+}
+
+export interface DrawingStroke {
+  id: string;
+  tool: 'pen' | 'highlighter';
+  color: string;
+  width: number;
+  points: DrawingPoint[];
+}
+
+export const getPageDrawings = (pdfId: string, pageNumber: number): DrawingStroke[] => {
+  try {
+    const key = `drawings-${pdfId}-${pageNumber}`;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    console.error("Failed to read drawings", err);
+    return [];
+  }
+};
+
+export const savePageDrawings = (pdfId: string, pageNumber: number, strokes: DrawingStroke[]): void => {
+  try {
+    const key = `drawings-${pdfId}-${pageNumber}`;
+    localStorage.setItem(key, JSON.stringify(strokes));
+  } catch (err) {
+    console.error("Failed to save drawings", err);
+  }
+};
+
+export const deletePDFDrawings = (pdfId: string, totalPages: number): void => {
+  try {
+    for (let p = 1; p <= totalPages + 10; p++) {
+      localStorage.removeItem(`drawings-${pdfId}-${p}`);
+    }
+  } catch (err) {
+    console.error("Failed to clear PDF drawings", err);
+  }
+};
