@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Eye, EyeOff, LayoutGrid, Network, Sparkles, 
-  Settings2, Sun, Moon, Library, Bookmark, BookOpen, Layers
+  Settings2, Sun, Moon, Library, Bookmark, BookOpen, Layers,
+  PanelLeft, PanelRight
 } from 'lucide-react';
 import { 
   storage, PDFDocumentInfo, KnowledgeCapsuleItem, 
@@ -34,7 +35,8 @@ export default function App() {
   // Workspace UI panel layout controls
   const [rightPanel, setRightPanel] = useState<'capsule' | 'ai' | 'graph'>('capsule');
   const [workspaceMode, setWorkspaceMode] = useState<'split' | 'reader-only' | 'graph-only'>('split');
-  const [showLeftSidebar, setShowLeftSidebar] = useState<boolean>(true);
+  const [showLeftSidebar, setShowLeftSidebar] = useState<boolean>(false);
+  const [showRightSidebar, setShowRightSidebar] = useState<boolean>(true);
   
   // Selected Text Cache
   const [activeHighlightText, setActiveHighlightText] = useState<string>('');
@@ -392,12 +394,26 @@ export default function App() {
                 ))}
               </div>
 
-              {/* View options Split vs Full Graph vs PDF only */}
+              {/* Workspace Layout Control Group */}
               <div className="flex items-center bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/60">
+                {/* Left panel toggle */}
+                <button
+                  onClick={() => setShowLeftSidebar(prev => !prev)}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    showLeftSidebar ? 'bg-white dark:bg-slate-850 text-indigo-500 shadow-sm' : 'text-slate-450 hover:text-slate-650'
+                  }`}
+                  title="Toggle Bookmarks Outline"
+                >
+                  <PanelLeft className="h-3.5 w-3.5" />
+                </button>
+
+                <div className="h-4 w-px bg-slate-200 dark:bg-slate-800 mx-1" />
+
+                {/* Main View modes */}
                 <button
                   onClick={() => setWorkspaceMode('split')}
                   className={`p-1.5 rounded-lg transition cursor-pointer ${
-                    workspaceMode === 'split' ? 'bg-white dark:bg-slate-850 text-indigo-500' : 'text-slate-450'
+                    workspaceMode === 'split' ? 'bg-white dark:bg-slate-850 text-indigo-500 shadow-sm' : 'text-slate-450 hover:text-slate-650'
                   }`}
                   title="Split Workspace"
                 >
@@ -406,11 +422,24 @@ export default function App() {
                 <button
                   onClick={() => setWorkspaceMode('graph-only')}
                   className={`p-1.5 rounded-lg transition cursor-pointer ${
-                    workspaceMode === 'graph-only' ? 'bg-white dark:bg-slate-850 text-indigo-500' : 'text-slate-450'
+                    workspaceMode === 'graph-only' ? 'bg-white dark:bg-slate-850 text-indigo-500 shadow-sm' : 'text-slate-450 hover:text-slate-650'
                   }`}
                   title="Mind Map Workspace"
                 >
                   <Network className="h-3.5 w-3.5" />
+                </button>
+
+                <div className="h-4 w-px bg-slate-200 dark:bg-slate-800 mx-1" />
+
+                {/* Right panel toggle */}
+                <button
+                  onClick={() => setShowRightSidebar(prev => !prev)}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    showRightSidebar ? 'bg-white dark:bg-slate-850 text-indigo-500 shadow-sm' : 'text-slate-450 hover:text-slate-650'
+                  }`}
+                  title="Toggle Workspace Panel"
+                >
+                  <PanelRight className="h-3.5 w-3.5" />
                 </button>
               </div>
             </>
@@ -451,7 +480,7 @@ export default function App() {
             
             {/* Outline Left Sidebar */}
             {showLeftSidebar && (
-              <div className="w-56 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col z-10 animate-slide-right">
+              <div className="absolute left-4 top-4 bottom-4 lg:relative lg:left-0 lg:top-0 lg:bottom-0 w-56 h-[calc(100%-2rem)] lg:h-full z-30 bg-white/95 dark:bg-slate-900/95 lg:bg-white lg:dark:bg-slate-900 backdrop-blur-md lg:backdrop-blur-none border border-slate-200 dark:border-slate-800 lg:border-r lg:border-slate-200 lg:dark:border-slate-800 lg:border-none shadow-2xl lg:shadow-none rounded-2xl lg:rounded-none flex flex-col animate-slide-right">
                 {/* Bookmarks Section */}
                 <div className="p-4 border-b border-slate-100 dark:border-slate-850">
                   <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-2.5">
@@ -531,7 +560,8 @@ export default function App() {
                 </div>
               ) : (
                 /* Side Workspace panel Drawer (Split Screen mode) */
-                <div className="w-[370px] h-full p-4 pl-0 overflow-hidden flex flex-col gap-3">
+                showRightSidebar && (
+                  <div className="absolute right-4 top-4 bottom-4 lg:relative lg:right-0 lg:top-0 lg:bottom-0 w-[370px] max-w-[90vw] h-[calc(100%-2rem)] lg:h-full p-4 lg:p-4 lg:pl-0 z-30 bg-white/95 dark:bg-slate-900/95 lg:bg-transparent backdrop-blur-md lg:backdrop-blur-none border border-slate-200 dark:border-slate-800 lg:border-none shadow-2xl lg:shadow-none rounded-2xl lg:rounded-none flex flex-col gap-3 animate-slide-left">
                   
                   {/* Tabs select above drawer */}
                   <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/60 text-xs">
@@ -613,8 +643,9 @@ export default function App() {
                     )}
                   </div>
                 </div>
-              )}
-            </div>
+              )
+            )}
+          </div>
           </div>
         )}
       </main>
