@@ -73,11 +73,12 @@ export default function App() {
     return acc;
   }, {} as Record<string, string>);
 
-  const handleOpenPDF = (pdfId: string) => {
+  const handleOpenPDF = (pdfId: string, currentList?: PDFDocumentInfo[]) => {
     setActivePdfId(pdfId);
     
+    const listToUse = currentList || pdfs;
     // Update last opened timestamp
-    const updatedList = pdfs.map(p => 
+    const updatedList = listToUse.map(p => 
       p.id === pdfId ? { ...p, lastOpened: new Date().toISOString() } : p
     );
     setPdfs(updatedList);
@@ -104,11 +105,9 @@ export default function App() {
       await savePDFFile(newId, data);
       
       const newList = [...pdfs, newPdf];
-      setPdfs(newList);
-      storage.savePDFList(newList);
       
-      // Auto-open
-      handleOpenPDF(newId);
+      // Auto-open and pass the fresh list to bypass async state update lag
+      handleOpenPDF(newId, newList);
     } catch (err) {
       console.error("PDF File Storage failed", err);
       alert("Failed to upload PDF locally to IndexedDB.");
