@@ -133,9 +133,33 @@ async function callOpenAIAPI(apiKey: string, prompt: string): Promise<string> {
 
 export const runAIAction = async (params: AIServiceParams): Promise<AIResult> => {
   const { action, text, context, apiKey, provider } = params;
+
+  // 1. In production, route queries through secure serverless Vercel backend proxy
+  const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  if (isProduction) {
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, text, context, apiKey, provider })
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Serverless AI execution failed.');
+      }
+      return data;
+    } catch (e: any) {
+      console.error("Vercel backend AI query failed:", e);
+      throw new Error(e.message || e);
+    }
+  }
   
-  // If an API key is available, attempt real AI calls
-  if (apiKey && apiKey.trim() !== '') {
+  // 2. Locally, run direct browser fetch (with local .env fallback if settings are empty)
+  const activeKey = apiKey && apiKey.trim() !== ''
+    ? apiKey
+    : (provider === 'gemini' ? import.meta.env.VITE_GEMINI_API_KEY : import.meta.env.VITE_OPENAI_API_KEY);
+
+  if (activeKey && activeKey.trim() !== '') {
     const isConversational = !context || !context.includes("highlighting");
     
     let systemPrompt = '';
@@ -164,9 +188,9 @@ Depending on the requested action, do the following:
     try {
       let rawResult = '';
       if (provider === 'gemini') {
-        rawResult = await callGeminiAPI(apiKey, systemPrompt);
+        rawResult = await callGeminiAPI(activeKey, systemPrompt);
       } else {
-        rawResult = await callOpenAIAPI(apiKey, systemPrompt);
+        rawResult = await callOpenAIAPI(activeKey, systemPrompt);
       }
 
       if (action === 'flashcards') {
