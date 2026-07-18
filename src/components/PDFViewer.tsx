@@ -56,6 +56,10 @@ const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    if (pencilMode) {
+      window.getSelection()?.removeAllRanges();
+    }
+
     const preventDefault = (e: TouchEvent) => {
       if (pencilMode) {
         e.preventDefault();
@@ -411,8 +415,12 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
   }, [pdf, pageNumber, scale]);
 
   const handleTextSelection = () => {
+    if (pencilMode) {
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !selection.toString().trim() || pencilMode) return;
+    if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
 
     const range = selection.getRangeAt(0);
     const selectedText = selection.toString().trim();
@@ -473,7 +481,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
     <div 
       ref={containerRef}
       onMouseUp={handleTextSelection}
-      className="relative select-text bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl overflow-hidden mx-auto" 
+      className={`relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-xl overflow-hidden mx-auto ${pencilMode ? 'select-none' : 'select-text'}`} 
       style={{ 
         width: pageSize.width ? `${pageSize.width}px` : '100%', 
         height: pageSize.height ? `${pageSize.height}px` : 'auto',
@@ -485,8 +493,8 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
           <RefreshCw className="h-5 w-5 text-indigo-500 animate-spin" />
         </div>
       )}
-      <canvas ref={canvasRef} className="block select-none" />
-      <div ref={textLayerRef} className="textLayer" />
+      <canvas ref={canvasRef} className="block select-none pointer-events-none" />
+      <div ref={textLayerRef} className={`textLayer ${pencilMode ? 'select-none pointer-events-none' : ''}`} />
       
       {readingMode !== 'clean' && pageCapsules.map((capsule) => {
         const isSelected = selectedCapsuleId === capsule.id;
@@ -826,7 +834,10 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 
   // Selection handler for sample HTML view
   const handleSampleTextSelection = (pageNumber: number) => {
-    if (pencilMode) return;
+    if (pencilMode) {
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
 
@@ -860,7 +871,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     if (p === 1) {
       return (
         <div 
-          className="prose dark:prose-invert max-w-none px-12 py-10 select-text"
+          className={`prose dark:prose-invert max-w-none px-12 py-10 ${pencilMode ? 'select-none pointer-events-none' : 'select-text'}`}
           onMouseUp={() => handleSampleTextSelection(1)}
         >
           <div className="text-center mb-8 border-b border-slate-200 dark:border-slate-800 pb-6">
@@ -920,7 +931,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     if (p === 2) {
       return (
         <div 
-          className="prose dark:prose-invert max-w-none px-12 py-10 select-text"
+          className={`prose dark:prose-invert max-w-none px-12 py-10 ${pencilMode ? 'select-none pointer-events-none' : 'select-text'}`}
           onMouseUp={() => handleSampleTextSelection(2)}
         >
           <h3 className="text-lg font-bold text-slate-855 dark:text-slate-205 mb-2">3. Amyloid-Beta Accumulation & Synaptic Toxicity</h3>
@@ -970,7 +981,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     if (p === 3) {
       return (
         <div 
-          className="prose dark:prose-invert max-w-none px-12 py-10 select-text"
+          className={`prose dark:prose-invert max-w-none px-12 py-10 ${pencilMode ? 'select-none pointer-events-none' : 'select-text'}`}
           onMouseUp={() => handleSampleTextSelection(3)}
         >
           <h3 className="text-lg font-bold text-slate-855 dark:text-slate-200 mb-2">4. Mitochondrial Dysfunction & Oxidative Stress</h3>
@@ -1020,7 +1031,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     if (p === 4) {
       return (
         <div 
-          className="prose dark:prose-invert max-w-none px-12 py-10 select-text"
+          className={`prose dark:prose-invert max-w-none px-12 py-10 ${pencilMode ? 'select-none pointer-events-none' : 'select-text'}`}
           onMouseUp={() => handleSampleTextSelection(4)}
         >
           <h3 className="text-lg font-bold text-slate-855 dark:text-slate-200 mb-2">5. Clinical Diagnostic Biomarkers</h3>
