@@ -38,6 +38,17 @@ export const AISidebar: React.FC<AISidebarProps> = ({
   const [apiProvider, setApiProvider] = useState<'gemini' | 'openai'>(settings.apiProvider);
   const [apiKey, setApiKey] = useState(settings.apiKey);
 
+  const UNIQMIND_KEYS = {
+    gemini: import.meta.env.VITE_GEMINI_API_KEY || '',
+    openai: import.meta.env.VITE_OPENAI_API_KEY || ''
+  };
+
+  useEffect(() => {
+    if (!apiKey || apiKey === UNIQMIND_KEYS.gemini || apiKey === UNIQMIND_KEYS.openai) {
+      setApiKey(UNIQMIND_KEYS[apiProvider]);
+    }
+  }, [apiProvider]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom

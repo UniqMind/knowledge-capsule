@@ -176,12 +176,17 @@ export const storage = {
   getSettings: (): UserSettings => {
     const setStr = localStorage.getItem(`${KEY_PREFIX}settings`);
     if (setStr) {
-      return JSON.parse(setStr);
+      const parsed = JSON.parse(setStr);
+      if (!parsed.apiKey || parsed.apiKey.trim() === '') {
+        parsed.apiProvider = 'openai';
+        parsed.apiKey = import.meta.env.VITE_OPENAI_API_KEY || '';
+      }
+      return parsed;
     }
     return {
       darkMode: false,
-      apiKey: '',
-      apiProvider: 'gemini',
+      apiKey: import.meta.env.VITE_OPENAI_API_KEY || '',
+      apiProvider: 'openai',
       readingMode: 'study',
       capsuleViewMode: 'sidebar'
     };
