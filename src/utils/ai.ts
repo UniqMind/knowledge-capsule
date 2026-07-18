@@ -136,8 +136,17 @@ export const runAIAction = async (params: AIServiceParams): Promise<AIResult> =>
   
   // If an API key is available, attempt real AI calls
   if (apiKey && apiKey.trim() !== '') {
-    const systemPrompt = `You are KnowledgeCapsule AI, an expert research assistant. You are helping a user read a research paper.
-The user highlighted this text: "${text}".
+    const isConversational = !context || !context.includes("highlighting");
+    
+    let systemPrompt = '';
+    if (isConversational) {
+      systemPrompt = `You are KnowledgeCapsule AI, an expert research assistant. You are helping a user read a research paper.
+Please answer the user's question directly, accurately, and professionally. Focus on scientific/academic details to help them learn.
+
+User Question: "${text}"`;
+    } else {
+      systemPrompt = `You are KnowledgeCapsule AI, an expert research assistant. You are helping a user read a research paper.
+The user highlighted this text from the paper: "${text}".
 ${context ? `The context of this annotation is: "${context}"` : ''}
 
 Provide your response in clear markdown format.
@@ -150,6 +159,7 @@ Depending on the requested action, do the following:
 - Action "mnemonic": Generate a creative mnemonic to memorize this concept.
 - Action "beginner": Explain it at an introductory high-school level.
 - Action "scientific": Provide an extremely rigorous graduate-level molecular mechanism explanation.`;
+    }
 
     try {
       let rawResult = '';
@@ -173,9 +183,9 @@ Depending on the requested action, do the following:
       }
 
       return { text: rawResult };
-    } catch (e) {
-      console.warn("API call failed, falling back to mock AI:", e);
-      // Fall through to mock
+    } catch (e: any) {
+      console.error("API call failed:", e);
+      throw new Error(`API call failed: ${e.message || e}`);
     }
   }
 
