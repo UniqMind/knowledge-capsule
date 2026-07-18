@@ -20,6 +20,13 @@ export default function App() {
   // Initialize seed data on load
   useEffect(() => {
     initSeedData();
+    const currentCapsules = storage.getCapsules();
+    if (currentCapsules.some(c => c.id === 'capsule-1')) {
+      storage.saveCapsules([]);
+      storage.saveConnections([]);
+      setCapsules([]);
+      setConnections([]);
+    }
   }, []);
 
   // Core metadata states

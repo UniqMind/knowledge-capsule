@@ -232,8 +232,8 @@ export const sampleActivity: DailyActivity[] = [
 export const initSeedData = () => {
   if (storage.getPDFList().length === 0) {
     storage.savePDFList([samplePDF]);
-    storage.saveCapsules(sampleCapsules);
-    storage.saveConnections(sampleConnections);
+    storage.saveCapsules([]); // Start completely clean
+    storage.saveConnections([]); // Start completely clean
     storage.saveActivity(sampleActivity);
   }
 };

@@ -892,35 +892,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4 relative">
             Neurons maintain a complex polar shape supported by an internal skeleton. Under physiological conditions, healthy tau protein binds to tubulin monomers, promoting microtubule polymerization. However, in pathological states, excess kinase activation alters tau folding. Specifically, 
             {" "}
-            <span 
-              onClick={() => onSelectCapsule('capsule-1')}
-              className={`pdf-highlight hl-yellow font-medium transition cursor-pointer px-1 rounded ${
-                selectedCapsuleId === 'capsule-1' ? 'ring-2 ring-indigo-500' : ''
-              } ${readingMode === 'clean' ? 'bg-transparent text-slate-600 dark:text-slate-400 p-0 font-normal cursor-text' : ''}`}
-            >
-              Tau hyperphosphorylation destabilizes microtubules, disrupting axonal transport.
-            </span>
-            {readingMode !== 'clean' && (
-              <span 
-                className="inline-flex items-center justify-center ml-1 select-none relative group/marker cursor-pointer align-middle"
-                onClick={(e) => { e.stopPropagation(); onSelectCapsule('capsule-1'); }}
-                onMouseEnter={(e) => handleMarkerHover(e, capsules.find(c => c.id === 'capsule-1')!)}
-                onMouseLeave={handleMarkerLeave}
-              >
-                <svg className="w-5 h-5 flex items-center justify-center">
-                  <circle cx="10" cy="10" r="7" className="stroke-slate-200 dark:stroke-slate-800 fill-none" strokeWidth="2.5" />
-                  <circle 
-                    cx="10" cy="10" r="7" 
-                    className="progress-ring-circle fill-none transition-all duration-300" 
-                    stroke={getStatusColor(capsules.find(c => c.id === 'capsule-1')?.progressStatus || 'learning')}
-                    strokeWidth="2.5" 
-                    strokeDasharray={2 * Math.PI * 7}
-                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.4)}
-                  />
-                </svg>
-                <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-200">①</span>
-              </span>
-            )}
+            Tau hyperphosphorylation destabilizes microtubules, disrupting axonal transport.
             {" "}
             This disruption halts the flow of essential organelles, including vesicles containing trophic factors and mitochondria, to synapses located up to a meter away from the cell body. Without these resources, terminals go through synaptic pruning and cellular apoptosis.
           </p>
@@ -942,35 +914,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4">
             Physiologically, alpha-secretase cleaves within the amyloid-beta sequence, producing a neuroprotective soluble APP alpha fragment. Under disease conditions, the balance shifts towards BACE1 cutting. Consequently,
             {" "}
-            <span 
-              onClick={() => onSelectCapsule('capsule-2')}
-              className={`pdf-highlight hl-blue font-medium transition cursor-pointer px-1 rounded ${
-                selectedCapsuleId === 'capsule-2' ? 'ring-2 ring-indigo-500' : ''
-              } ${readingMode === 'clean' ? 'bg-transparent text-slate-600 dark:text-slate-400 p-0 font-normal cursor-text' : ''}`}
-            >
-              Amyloid-beta plaques accumulate extracellularly, inducing synaptic depression.
-            </span>
-            {readingMode !== 'clean' && (
-              <span 
-                className="inline-flex items-center justify-center ml-1 select-none relative group/marker cursor-pointer align-middle"
-                onClick={(e) => { e.stopPropagation(); onSelectCapsule('capsule-2'); }}
-                onMouseEnter={(e) => handleMarkerHover(e, capsules.find(c => c.id === 'capsule-2')!)}
-                onMouseLeave={handleMarkerLeave}
-              >
-                <svg className="w-5 h-5 flex items-center justify-center">
-                  <circle cx="10" cy="10" r="7" className="stroke-slate-200 dark:stroke-slate-800 fill-none" strokeWidth="2.5" />
-                  <circle 
-                    cx="10" cy="10" r="7" 
-                    className="progress-ring-circle fill-none" 
-                    stroke={getStatusColor(capsules.find(c => c.id === 'capsule-2')?.progressStatus || 'understood')}
-                    strokeWidth="2.5" 
-                    strokeDasharray={2 * Math.PI * 7}
-                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.75)}
-                  />
-                </svg>
-                <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-250">②</span>
-              </span>
-            )}
+            Amyloid-beta plaques accumulate extracellularly, inducing synaptic depression.
             {" "}
             It is critical to note that while plaques are highly visible diagnostic features, soluble Aβ oligomers represent the primary cytotoxic elements. These oligomers bind to NMDA receptors, triggering excess calcium influx and downstream calcineurin activation.
           </p>
@@ -992,35 +936,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           <p className="text-sm text-slate-655 dark:text-slate-400 leading-relaxed mb-4">
             Electron Transport Chain enzymes (ETC) are vulnerable to direct damage by oligomeric beta-amyloid. In particular, binding to Aβ-binding alcohol dehydrogenase (ABAD) disrupts dehydrogenase function. Thus,
             {" "}
-            <span 
-              onClick={() => onSelectCapsule('capsule-3')}
-              className={`pdf-highlight hl-orange font-medium transition cursor-pointer px-1 rounded ${
-                selectedCapsuleId === 'capsule-3' ? 'ring-2 ring-indigo-500' : ''
-              } ${readingMode === 'clean' ? 'bg-transparent text-slate-600 dark:text-slate-400 p-0 font-normal cursor-text' : ''}`}
-            >
-              Mitochondrial dysfunction leads to the overproduction of reactive oxygen species (ROS), causing oxidative damage.
-            </span>
-            {readingMode !== 'clean' && (
-              <span 
-                className="inline-flex items-center justify-center ml-1 select-none relative group/marker cursor-pointer align-middle"
-                onClick={(e) => { e.stopPropagation(); onSelectCapsule('capsule-3'); }}
-                onMouseEnter={(e) => handleMarkerHover(e, capsules.find(c => c.id === 'capsule-3')!)}
-                onMouseLeave={handleMarkerLeave}
-              >
-                <svg className="w-5 h-5 flex items-center justify-center">
-                  <circle cx="10" cy="10" r="7" className="stroke-slate-200 dark:stroke-slate-800 fill-none" strokeWidth="2.5" />
-                  <circle 
-                    cx="10" cy="10" r="7" 
-                    className="progress-ring-circle fill-none" 
-                    stroke={getStatusColor(capsules.find(c => c.id === 'capsule-3')?.progressStatus || 'partial')}
-                    strokeWidth="2.5" 
-                    strokeDasharray={2 * Math.PI * 7}
-                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.5)}
-                  />
-                </svg>
-                <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-200">③</span>
-              </span>
-            )}
+            Mitochondrial dysfunction leads to the overproduction of reactive oxygen species (ROS), causing oxidative damage.
             {" "}
             The buildup of free radicals oxidizes intracellular lipids, membrane proteins, and mitochondrial DNA. The oxidative stress leads to lipid peroxidation, which compromises the electrical barrier of the cell membrane and leads to massive leaks, causing a collapse in cellular voltage.
           </p>
@@ -1042,35 +958,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed mb-4">
             Recent studies have used EEG recordings to look for changes in network dynamics during working memory tasks. As synapses degrade, synchronization between the prefrontal cortex and the hippocampus decays. As a direct indicator,
             {" "}
-            <span 
-              onClick={() => onSelectCapsule('capsule-4')}
-              className={`pdf-highlight hl-red font-medium transition cursor-pointer px-1 rounded ${
-                selectedCapsuleId === 'capsule-4' ? 'ring-2 ring-indigo-500' : ''
-              } ${readingMode === 'clean' ? 'bg-transparent text-slate-600 dark:text-slate-400 p-0 font-normal cursor-text' : ''}`}
-            >
-              Electroencephalography (EEG) shows decreased coherence in the gamma band.
-            </span>
-            {readingMode !== 'clean' && (
-              <span 
-                className="inline-flex items-center justify-center ml-1 select-none relative group/marker cursor-pointer align-middle"
-                onClick={(e) => { e.stopPropagation(); onSelectCapsule('capsule-4'); }}
-                onMouseEnter={(e) => handleMarkerHover(e, capsules.find(c => c.id === 'capsule-4')!)}
-                onMouseLeave={handleMarkerLeave}
-              >
-                <svg className="w-5 h-5 flex items-center justify-center">
-                  <circle cx="10" cy="10" r="7" className="stroke-slate-200 dark:stroke-slate-800 fill-none" strokeWidth="2.5" />
-                  <circle 
-                    cx="10" cy="10" r="7" 
-                    className="progress-ring-circle fill-none" 
-                    stroke={getStatusColor(capsules.find(c => c.id === 'capsule-4')?.progressStatus || 'not-started')}
-                    strokeWidth="2.5" 
-                    strokeDasharray={2 * Math.PI * 7}
-                    strokeDashoffset={2 * Math.PI * 7 * (1 - 0.1)}
-                  />
-                </svg>
-                <span className="absolute text-[8px] font-bold text-slate-855 dark:text-slate-100">④</span>
-              </span>
-            )}
+            Electroencephalography (EEG) shows decreased coherence in the gamma band.
             {" "}
             This reduction in gamma coherence (30–80 Hz) points to a loss of synaptic integrity in local cortical networks, which serves as a highly sensitive biomarker for pre-symptomatic cognitive decline.
           </p>
