@@ -179,7 +179,7 @@ export const storage = {
       return JSON.parse(setStr);
     }
     return {
-      darkMode: true,
+      darkMode: false,
       apiKey: '',
       apiProvider: 'gemini',
       readingMode: 'study',

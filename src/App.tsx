@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Eye, EyeOff, LayoutGrid, Network, Sparkles, 
-  Settings2, Sun, Moon, Library, Bookmark, BookOpen, Layers,
+  Settings2, Library, Bookmark, BookOpen, Layers,
   PanelLeft, PanelRight
 } from 'lucide-react';
 import { 
@@ -58,14 +58,10 @@ export default function App() {
     setConnections(storage.getConnections());
   }, [activePdfId]);
 
-  // Dark Mode Sync
+  // Dark Mode Sync: Force light mode
   useEffect(() => {
-    if (settings.darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [settings.darkMode]);
+    document.documentElement.classList.remove('dark');
+  }, []);
 
   const activePdf = pdfs.find(p => p.id === activePdfId) || null;
   const selectedCapsule = capsules.find(c => c.id === selectedCapsuleId) || null;
@@ -464,13 +460,6 @@ export default function App() {
             </>
           )}
 
-          {/* Dark Mode toggle */}
-          <button
-            onClick={() => handleUpdateSettings({ ...settings, darkMode: !settings.darkMode })}
-            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-850 transition cursor-pointer text-slate-500 hover:text-indigo-500"
-          >
-            {settings.darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </button>
         </div>
       </header>
 
