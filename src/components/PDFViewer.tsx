@@ -11,8 +11,10 @@ import {
 } from '../utils/storage';
 import { SAMPLE_PDF_ID } from '../utils/sampleData';
 
-// Setup worker using classic JS worker from unpkg for 100% mobile browser compatibility (ES module workers fail on Safari iOS)
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+// Setup worker
+pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 // 1. MODULE FOR PERSISTING AND RENDERING VECTOR DRAWING STROKES (Stylus & Finger Markup)
 interface PageDrawingCanvasProps {
