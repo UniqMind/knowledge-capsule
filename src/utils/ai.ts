@@ -92,7 +92,7 @@ const getKeywords = (text: string): string => {
 // Real API call handlers if key is provided
 async function callGeminiAPI(apiKey: string, prompt: string): Promise<string> {
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -100,10 +100,13 @@ async function callGeminiAPI(apiKey: string, prompt: string): Promise<string> {
       })
     });
     const data = await response.json();
+    if (data.error) {
+      throw new Error(data.error.message || "Gemini API Error");
+    }
     return data.candidates[0].content.parts[0].text;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Gemini API Error:', error);
-    throw new Error('Failed to fetch from Gemini API. Check your API Key.');
+    throw new Error(error.message || 'Failed to fetch from Gemini API. Check your API Key.');
   }
 }
 
@@ -178,6 +181,23 @@ Depending on the requested action, do the following:
 
   // MOCK FALLBACK ENGINE
   const kw = getKeywords(text);
+
+  // If this is a general conversational chat (no highlight context), provide a helpful response
+  const isConversational = !context || !context.includes("highlighting");
+  if (!apiKey && isConversational && kw === 'general') {
+    const lowercaseQuery = text.toLowerCase().trim();
+    if (lowercaseQuery.match(/^(hello|hi|hey|greetings|good morning|good afternoon)/)) {
+      return { text: "Hello! I am your AI research assistant. I can help explain the active paper, simplify molecular pathways, generate study flashcards, or create mnemonics. Highlight any sentence in the paper, or connect a live Gemini/OpenAI API key in settings (⚙️) to chat freely!" };
+    }
+    if (lowercaseQuery.includes("who are you") || lowercaseQuery.includes("your name") || lowercaseQuery.includes("what is this")) {
+      return { text: "I am the KnowledgeCapsule AI Assistant, a specialized scholarly tutor designed to help you break down scientific papers, build knowledge nodes, and prepare study materials." };
+    }
+    if (lowercaseQuery.includes("help") || lowercaseQuery.includes("what can you do")) {
+      return { text: "I can assist you with:\n1. **Concept Explanation**: Select a paragraph and ask me to explain, simplify, or review it.\n2. **Study Material**: Auto-generate flashcards or test quizzes based on paper highlights.\n3. **Citations**: Locate journal publication references for highlighted claims.\n\nTo unlock live research questions, click the settings icon (⚙️) on the top right to enter a Gemini API Key." };
+    }
+    return { text: `I am currently operating in offline mode. To answer your question: "${text}" with real-time scientific accuracy, please click the gear icon (⚙️) on the top right to enter your Gemini or OpenAI API Key.` };
+  }
+
   const data = PRE_BAKED_RESPONSES[kw];
 
   const genericExplanation = `This highlighted text details: "${text}".
