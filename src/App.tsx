@@ -384,7 +384,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           {activePdfId && (
             <>
-              {/* Reading Modes Selector */}
+              {/* Reading Modes Selector (Desktop/Tablet) */}
               <div className="hidden md:flex items-center bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/60">
                 {(['clean', 'study', 'research', 'review'] as const).map((mode) => (
                   <button
@@ -400,6 +400,18 @@ export default function App() {
                   </button>
                 ))}
               </div>
+
+              {/* Reading Modes Selector (Mobile Cycle Toggle) */}
+              <button
+                onClick={() => {
+                  const modes = ['clean', 'study', 'research', 'review'] as const;
+                  const nextIdx = (modes.indexOf(settings.readingMode) + 1) % modes.length;
+                  handleUpdateSettings({ ...settings, readingMode: modes[nextIdx] });
+                }}
+                className="flex md:hidden items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-[10px] font-bold text-indigo-650 dark:text-indigo-400 shadow-sm cursor-pointer capitalize"
+              >
+                <span>{settings.readingMode}</span>
+              </button>
 
               {/* Workspace Layout Control Group */}
               <div className="flex items-center bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/60">

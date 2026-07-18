@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight, 
   BookOpen, CheckCircle, RefreshCw, Bookmark, X,
-  PenTool, Eraser, Highlighter, Edit3
+  PenTool, Eraser, Highlighter, Edit3, Library,
+  Sparkles, EyeOff
 } from 'lucide-react';
 import * as pdfjs from 'pdfjs-dist';
 import { 
@@ -26,6 +27,7 @@ interface PageDrawingCanvasProps {
   activeColor: string;
   activeWidth: number;
   dimensions?: { width: number; height: number };
+  readingMode: 'clean' | 'study' | 'research' | 'review';
 }
 
 const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
@@ -36,7 +38,8 @@ const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
   activeTool,
   activeColor,
   activeWidth,
-  dimensions
+  dimensions,
+  readingMode
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -101,7 +104,7 @@ const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
     canvas.style.height = `${pageSize.height}px`;
 
     drawStrokes();
-  }, [pageSize, scale]);
+  }, [pageSize, scale, readingMode]);
 
   // Render all vector strokes onto the drawing canvas
   const drawStrokes = () => {
@@ -111,6 +114,8 @@ const PageDrawingCanvas: React.FC<PageDrawingCanvasProps> = ({
     if (!context) return;
 
     context.clearRect(0, 0, canvas.width, canvas.height);
+    if (readingMode === 'clean') return; // Draw nothing in Clean Mode
+
     const dpr = window.devicePixelRatio || 1;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -524,29 +529,49 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
               const markerX = (lastRect.x + lastRect.width) * scale;
               const markerY = lastRect.y * scale;
 
+              const hasRefs = capsule.references && capsule.references.length > 0;
+
               return (
-                <div
-                  className="absolute pointer-events-auto z-10 select-none cursor-pointer flex items-center justify-center animate-scale-up"
+                <div 
+                  className="absolute pointer-events-none flex items-center gap-1.5" 
                   style={{
                     left: `${markerX + 4}px`,
                     top: `${markerY - 2}px`
                   }}
-                  onClick={() => onSelectCapsule(capsule.id)}
-                  onMouseEnter={(e) => onMarkerHover(e, capsule)}
-                  onMouseLeave={onMarkerLeave}
                 >
-                  <svg className="w-5 h-5">
-                    <circle cx="10" cy="10" r="7" className="stroke-slate-200 dark:stroke-slate-800 fill-none" strokeWidth="2.5" />
-                    <circle 
-                      cx="10" cy="10" r="7" 
-                      className="progress-ring-circle fill-none" 
-                      stroke={getStatusColor(capsule.progressStatus)}
-                      strokeWidth="2.5" 
-                      strokeDasharray={2 * Math.PI * 7}
-                      strokeDashoffset={2 * Math.PI * 7 * (1 - (capsule.progressStatus === 'mastered' ? 1.0 : capsule.progressStatus === 'understood' ? 0.75 : capsule.progressStatus === 'partial' ? 0.5 : capsule.progressStatus === 'learning' ? 0.25 : 0))}
-                    />
-                  </svg>
-                  <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-100">{capsule.number}</span>
+                  <div
+                    className="pointer-events-auto z-10 select-none cursor-pointer flex items-center justify-center animate-scale-up"
+                    onClick={() => onSelectCapsule(capsule.id)}
+                    onMouseEnter={(e) => onMarkerHover(e, capsule)}
+                    onMouseLeave={onMarkerLeave}
+                  >
+                    <svg className="w-5 h-5">
+                      <circle cx="10" cy="10" r="7" className="stroke-slate-200 dark:stroke-slate-800 fill-none" strokeWidth="2.5" />
+                      <circle 
+                        cx="10" cy="10" r="7" 
+                        className="progress-ring-circle fill-none" 
+                        stroke={getStatusColor(capsule.progressStatus)}
+                        strokeWidth="2.5" 
+                        strokeDasharray={2 * Math.PI * 7}
+                        strokeDashoffset={2 * Math.PI * 7 * (1 - (capsule.progressStatus === 'mastered' ? 1.0 : capsule.progressStatus === 'understood' ? 0.75 : capsule.progressStatus === 'partial' ? 0.5 : capsule.progressStatus === 'learning' ? 0.25 : 0))}
+                      />
+                    </svg>
+                    <span className="absolute text-[8px] font-bold text-slate-800 dark:text-slate-100">{capsule.number}</span>
+                  </div>
+
+                  {/* Research Mode Citation Badge */}
+                  {readingMode === 'research' && hasRefs && (
+                    <a
+                      href={capsule.references[0].url || `https://scholar.google.com/scholar?q=${encodeURIComponent(capsule.references[0].citation)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="pointer-events-auto z-10 px-2 py-0.5 rounded-lg bg-indigo-50/90 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-[8px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition flex items-center gap-1 shadow-sm whitespace-nowrap"
+                      title={`Read Reference: ${capsule.references[0].citation}`}
+                    >
+                      <Library className="h-2 w-2" />
+                      <span>Ref: {capsule.references[0].citation.split(',')[0]}</span>
+                    </a>
+                  )}
                 </div>
               );
             })()}
@@ -564,6 +589,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
         activeColor={activeColor}
         activeWidth={activeWidth}
         dimensions={pageSize.width && pageSize.height ? pageSize : undefined}
+        readingMode={readingMode}
       />
     </div>
   );
@@ -1120,6 +1146,34 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           </div>
         )}
 
+        {/* Dynamic Mode Banners */}
+        {readingMode === 'review' && (
+          <div className="w-full max-w-2xl bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-center justify-between text-xs text-amber-600 dark:text-amber-400 font-semibold animate-scale-up">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-amber-500 animate-pulse" />
+              <span>Review Mode: Hiding mastered concepts. Focus on learning remaining highlights!</span>
+            </div>
+          </div>
+        )}
+
+        {readingMode === 'research' && (
+          <div className="w-full max-w-2xl bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3 flex items-center justify-between text-xs text-indigo-600 dark:text-indigo-400 font-semibold animate-scale-up">
+            <div className="flex items-center gap-2">
+              <Library className="h-4 w-4 text-indigo-500" />
+              <span>Research Mode: Inline citation references are now displayed next to highlights.</span>
+            </div>
+          </div>
+        )}
+
+        {readingMode === 'clean' && (
+          <div className="w-full max-w-2xl bg-slate-500/10 border border-slate-500/25 rounded-xl p-3 flex items-center justify-between text-xs text-slate-550 dark:text-slate-400 font-semibold animate-scale-up">
+            <div className="flex items-center gap-2">
+              <EyeOff className="h-4 w-4 text-slate-400" />
+              <span>Clean Mode: All text highlights and handwritten canvas drawing layers are hidden.</span>
+            </div>
+          </div>
+        )}
+
         {/* 1. INTERACTIVE MOCK SAMPLE PAPER (Flow Mode) */}
         {isSample && (
           <div className="flex flex-col gap-8 w-full max-w-2xl">
@@ -1141,6 +1195,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                   activeTool={drawingTool}
                   activeColor={drawingColor}
                   activeWidth={drawingWidth}
+                  readingMode={readingMode}
                 />
               </div>
             ))}
