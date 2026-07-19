@@ -1030,9 +1030,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           <span className="text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1 max-w-[70px] sm:max-w-[200px]">
             {pdfInfo.name.replace(/_/g, ' ')}
           </span>
-          <span className="hidden sm:inline-block text-[10px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-450 font-semibold uppercase">
-            Flow Mode
-          </span>
         </div>
 
         {/* Navigation, Zoom & Drawing toggles */}
