@@ -541,7 +541,14 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
                 >
                   <div
                     className="pointer-events-auto z-10 select-none cursor-pointer flex items-center justify-center animate-scale-up"
-                    onClick={() => onSelectCapsule(capsule.id)}
+                    onClick={() => {
+                      onSelectCapsule(capsule.id);
+                      if (hasRefs) {
+                        const ref = capsule.references[0];
+                        const citationUrl = ref.url || (ref.doi ? `https://doi.org/${ref.doi}` : `https://scholar.google.com/scholar?q=${encodeURIComponent(ref.citation)}`);
+                        window.open(citationUrl, '_blank', 'noopener,noreferrer');
+                      }
+                    }}
                     onMouseEnter={(e) => onMarkerHover(e, capsule)}
                     onMouseLeave={onMarkerLeave}
                   >
