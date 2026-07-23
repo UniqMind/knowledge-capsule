@@ -375,6 +375,49 @@ export const CapsulePanel: React.FC<CapsulePanelProps> = ({
               />
             </div>
 
+            {/* Linked Citations & Reference Links */}
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-2">
+                Linked Citations & Reference Links
+              </label>
+              {capsule.references.length === 0 ? (
+                <div className="p-3 bg-slate-50 dark:bg-slate-950/30 border border-slate-200/50 dark:border-slate-800/40 rounded-xl text-center">
+                  <p className="text-[10px] text-slate-400 italic">No citations linked to this highlight yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {capsule.references.map((ref, idx) => {
+                    const citationUrl = ref.url || (ref.doi ? `https://doi.org/${ref.doi}` : `https://scholar.google.com/scholar?q=${encodeURIComponent(ref.citation)}`);
+                    return (
+                      <div 
+                        key={idx} 
+                        className="p-3 bg-indigo-50/20 dark:bg-indigo-950/5 border border-indigo-100/50 dark:border-indigo-900/20 rounded-xl flex items-start justify-between gap-3 hover:border-[#0F4C81]/30 transition duration-200"
+                      >
+                        <div className="flex-1">
+                          <p className="text-[11px] text-slate-700 dark:text-slate-350 font-serif leading-relaxed line-clamp-2" title={ref.citation}>
+                            {ref.citation}
+                          </p>
+                          {ref.doi && (
+                            <span className="text-[9px] text-slate-400 font-mono mt-1 block">
+                              DOI: {ref.doi}
+                            </span>
+                          )}
+                        </div>
+                        <a
+                          href={citationUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-[#0F4C81] bg-[#0F4C81]/10 rounded-lg hover:bg-[#0F4C81] hover:text-white transition shadow-sm shrink-0"
+                        >
+                          <span>Access Link</span>
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* LaTeX Equations section */}
             <div className="border border-slate-200/60 dark:border-slate-800/80 rounded-xl overflow-hidden">
               <button 
